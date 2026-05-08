@@ -2,20 +2,13 @@ import React, { useState } from 'react';
 import { StyleSheet, Text, View, TextInput, TouchableOpacity, ScrollView } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { useRouter } from 'expo-router';
-import { createClient } from '@supabase/supabase-js';
-
-// Initialize Supabase to get the logged-in user
-const supabase = createClient(
-  'https://lsquxrvufehselooyenj.supabase.co',
-  'sb_publishable_TANOMAeqEQwjo0PYtjbn_Q_WkdLbwyb'
-);
 
 export default function CreateTeam() {
   const router = useRouter();
   
   // Form State
   const [teamName, setTeamName] = useState('');
-  const [sport, setSport] = useState('Soccer'); 
+  const [sport, setSport] = useState('Soccer'); // <-- NEW: Sport State
   const [format, setFormat] = useState('11v11');
   const [ageGroup, setAgeGroup] = useState('U12');
   const [division, setDivision] = useState('Division 1');
@@ -24,37 +17,17 @@ export default function CreateTeam() {
   // Generate Age Groups U7 to U21
   const ageGroups = Array.from({ length: 15 }, (_, i) => `U${i + 7}`);
 
-  // Ensure this function has the 'async' keyword right here!
   const handleSaveTeam = async () => {
     if (!teamName || !postalCode) {
       alert("Please fill in all required fields!");
       return;
     }
     
+    const teamData = { teamName, sport, format, ageGroup, division, postalCode };
+    
     try {
-      // Get the currently logged-in user from Supabase
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        alert("You must be logged in to create a team.");
-        return;
-      }
-
-      // Add manager_id to the payload
-      const teamData = { 
-        teamName, 
-        sport, 
-        format, 
-        ageGroup, 
-        division, 
-        postalCode, 
-        manager_id: user.id 
-      };
-      
-      console.log("Frontend sending this data to backend:", teamData);
-
       // Send the data to your Node.js Backend
-      const response = await fetch(' http://localhost:3000/api/teams', {
+      const response = await fetch('http://localhost:3000/api/teams', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -66,7 +39,7 @@ export default function CreateTeam() {
 
       if (response.ok) {
         alert(`Success! ${teamName} has been saved to the database.`);
-        router.replace('/search'); // Go to search page after creation
+        router.back(); // Go back to home page
       } else {
         alert("Database Error: " + result.error);
       }
@@ -78,7 +51,7 @@ export default function CreateTeam() {
 
   return (
     <ScrollView style={styles.container}>
-      <TouchableOpacity onPress={() => router.replace('/search')} style={styles.backButton}>
+      <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
         <Text style={styles.backButtonText}>← Back to Home</Text>
       </TouchableOpacity>
 
@@ -93,6 +66,7 @@ export default function CreateTeam() {
           placeholder="e.g., Montreal Impact Academy" 
         />
 
+        {/* NEW: Sport Dropdown */}
         <Text style={styles.label}>Sport</Text>
         <View style={styles.pickerContainer}>
           <Picker selectedValue={sport} onValueChange={setSport}>
