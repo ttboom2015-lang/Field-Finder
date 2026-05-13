@@ -3,6 +3,7 @@ import { StyleSheet, Text, View, FlatList, TouchableOpacity, ActivityIndicator, 
 import { Picker } from '@react-native-picker/picker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { createClient } from '@supabase/supabase-js';
+import * as Haptics from 'expo-haptics';
 
 const supabase = createClient(
   'https://lsquxrvufehselooyenj.supabase.co',
@@ -149,6 +150,7 @@ export default function AdminDashboard() {
   };
 
   const toggleSlotStatus = async (index) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const slot = slots[index];
     const newStatus = slot.status === 'available' ? 'booked' : 'available';
     const updatedSlots = [...slots];
@@ -166,7 +168,8 @@ export default function AdminDashboard() {
       setSlots(updatedSlots);
     }
   };
-  
+ // Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+//alert("Success! Profile saved.");
   const updatePrice = async (index, newPrice) => {
       const updatedSlots = [...slots];
       updatedSlots[index].price = newPrice;

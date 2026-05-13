@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, FlatList, TextInput, ActivityIndicator, Modal, SafeAreaView, Platform } from 'react-native';
+import React, { useState, useCallback, createElement } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, FlatList, TextInput, ActivityIndicator, Modal, SafeAreaView, Platform, ScrollView } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { createClient } from '@supabase/supabase-js';
@@ -7,19 +7,33 @@ import { Ionicons } from '@expo/vector-icons';
 
 const supabase = createClient('https://lsquxrvufehselooyenj.supabase.co', 'sb_publishable_TANOMAeqEQwjo0PYtjbn_Q_WkdLbwyb');
 
+const getLocalYYYYMMDD = (date) => {
+  const y = date.getFullYear(); const m = String(date.getMonth() + 1).padStart(2, '0'); const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
 export default function TeamFinder() {
   const router = useRouter();
   const [myTeamId, setMyTeamId] = useState(null);
+  const [loadingInitial, setLoadingInitial] = useState(true);
   
   const [teamSport, setTeamSport] = useState('Soccer');
-  const [teamAgeGroup, setTeamAgeGroup] = useState('U12');
-  const [teamDivision, setTeamDivision] = useState('Division 1');
-  const [teamGender, setTeamGender] = useState('Boys');
+  const [teamAgeGroup, setAgeGroup] = useState('U12');
+  const [teamDivision, setDivision] = useState('Division 1');
+  const [teamGender, setGender] = useState('Boys');
   const [teamPostalCode, setTeamPostalCode] = useState('H2X');
   
+  // Search Filters for Date and Time
+  const [searchDate, setSearchDate] = useState(getLocalYYYYMMDD(new Date()));
+  const [startTime, setStartTime] = useState('18:00');
+  const [endTime, setEndTime] = useState('20:00');
+  const timeOptions = Array.from({ length: 18 }, (_, i) => `${(i + 6).toString().padStart(2, '0')}:00`);
+
   const [teams, setTeams] = useState([]);
   const [loadingTeams, setLoadingTeams] = useState(false);
+
   const [isModalVisible, setIsModalVisible] = useState(false);
+  const [loadingSlots, setLoadingSlots] = useState(false); 
   const [selectedOpponent, setSelectedOpponent] = useState(null);
   const [myOpenMatches, setMyOpenMatches] = useState([]);
   const [selectedMatches, setSelectedMatches] = useState([]);
@@ -27,11 +41,13 @@ export default function TeamFinder() {
   useFocusEffect(
     useCallback(() => {
       const initializeData = async () => {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const { data: teamData } = await supabase.from('teams').select('id').eq('manager_id', user.id).single();
-          if (teamData) setMyTeamId(teamData.id);
-        }
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            const { data: teamData } = await supabase.from('teams').select('id').eq('manager_id', user.id).limit(1).maybeSingle();
+            if (teamData) setMyTeamId(teamData.id);
+          }
+        } catch (e) { console.error(e); } finally { setLoadingInitial(false); }
       };
       initializeData();
     }, [])
@@ -40,21 +56,24 @@ export default function TeamFinder() {
   const searchTeams = async () => {
     setLoadingTeams(true);
     try {
-      const tRes = await fetch(`http://localhost:3000/api/teams/available?sport=${teamSport}&startDate=2026-01-01&endDate=2026-12-31&postalCode=${teamPostalCode}&ageGroup=${teamAgeGroup}&division=${teamDivision}&gender=${teamGender}`);
-      setTeams(await tRes.json());
-    } catch (error) { alert("Error connecting to backend."); } finally { setLoadingTeams(false); }
+      const tRes = await fetch(`http://localhost:3000/api/teams/available?sport=${teamSport}&postalCode=${teamPostalCode}&ageGroup=${teamAgeGroup}&division=${teamDivision}&gender=${teamGender}&targetDate=${searchDate}&startTime=${startTime}&endTime=${endTime}`);
+      const data = await tRes.json();
+      setTeams(data);
+    } catch (error) { alert("Search Error: Backend unreachable"); } finally { setLoadingTeams(false); }
   };
 
   const handleChallengeClick = async (opponent) => {
-    if (!myTeamId) { alert("Create a team profile first!"); return; }
+    if (!myTeamId) { alert("Please create a team profile first!"); return; }
     setSelectedOpponent(opponent);
     setSelectedMatches([]); 
-    
+    setIsModalVisible(true); 
+    setLoadingSlots(true);   
+
     try {
       const response = await fetch(`http://localhost:3000/api/my-open-matches?myTeamId=${myTeamId}`);
-      setMyOpenMatches(await response.json());
-      setIsModalVisible(true);
-    } catch (err) { alert("Error fetching your reservations."); }
+      const data = await response.json();
+      setMyOpenMatches(data || []);
+    } catch (err) { alert("Error fetching your reservations."); } finally { setLoadingSlots(false); }
   };
 
   const toggleMatchSelection = (matchId) => {
@@ -70,36 +89,63 @@ export default function TeamFinder() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ matchIds: selectedMatches, opponentTeamId: selectedOpponent.team_id, myTeamId: myTeamId })
       });
-      if (response.ok) { 
-        alert(`Success! Invite sent to ${selectedOpponent.team_name}.`); 
-        setIsModalVisible(false); 
-      } else {
-        const result = await response.json(); alert("Error: " + result.error);
-      }
+      if (response.ok) { alert(`Success! Invite sent.`); setIsModalVisible(false); } 
+      else { const result = await response.json(); alert("Error: " + result.error); }
     } catch (err) { alert("Network Error"); }
   };
+
+  const getStatusColor = (status) => {
+      if (status === 'green') return '#28a745'; 
+      if (status === 'red') return '#dc3545';   
+      return '#ffc107'; 
+  };
+  const getStatusText = (status) => {
+      if (status === 'green') return 'Available';
+      if (status === 'red') return 'Booked / Busy';
+      return 'Status Unknown';
+  };
+
+  if (loadingInitial) return <ActivityIndicator size="large" color="#1A73E8" style={{marginTop: 100}}/>;
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.replace('/search')} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color="#333" />
-        </TouchableOpacity>
+        <TouchableOpacity onPress={() => router.replace('/search')} style={styles.backBtn}><Ionicons name="arrow-back" size={24} color="#333" /></TouchableOpacity>
         <Text style={styles.title}>Find Opponent</Text>
         <View style={{width: 40}} /> 
       </View>
 
-      <View style={{padding: 20}}>
+      <ScrollView contentContainerStyle={{padding: 20}} keyboardShouldPersistTaps="handled">
           <View style={styles.proCard}>
             <View style={styles.row}>
                 <View style={styles.pickerWrapper}><Picker style={styles.picker} selectedValue={teamSport} onValueChange={setTeamSport}><Picker.Item label="Soccer" value="Soccer" /><Picker.Item label="Basketball" value="Basketball" /></Picker></View>
-                <View style={styles.pickerWrapper}><Picker style={styles.picker} selectedValue={teamGender} onValueChange={setTeamGender}><Picker.Item label="Boys" value="Boys" /><Picker.Item label="Girls" value="Girls" /></Picker></View>
+                <View style={styles.pickerWrapper}><Picker style={styles.picker} selectedValue={teamGender} onValueChange={setGender}><Picker.Item label="Boys" value="Boys" /><Picker.Item label="Girls" value="Girls" /></Picker></View>
             </View>
             <View style={styles.row}>
-                <View style={styles.pickerWrapper}><Picker style={styles.picker} selectedValue={teamAgeGroup} onValueChange={setTeamAgeGroup}><Picker.Item label="U12" value="U12" /><Picker.Item label="U13" value="U13" /></Picker></View>
-                <View style={styles.pickerWrapper}><Picker style={styles.picker} selectedValue={teamDivision} onValueChange={setTeamDivision}><Picker.Item label="Div 1" value="Division 1" /><Picker.Item label="Div 2" value="Division 2" /></Picker></View>
+                <View style={styles.pickerWrapper}><Picker style={styles.picker} selectedValue={teamAgeGroup} onValueChange={setAgeGroup}><Picker.Item label="U12" value="U12" /><Picker.Item label="U13" value="U13" /></Picker></View>
+                <View style={styles.pickerWrapper}><Picker style={styles.picker} selectedValue={teamDivision} onValueChange={setDivision}><Picker.Item label="Div 1" value="Division 1" /><Picker.Item label="Div 2" value="Division 2" /></Picker></View>
+            </View>
+
+            <Text style={{fontWeight: 'bold', marginTop: 10, color: '#555', marginBottom: 5}}>Check Availability For:</Text>
+            <View style={styles.row}>
+                {Platform.OS === 'web' ? (
+                  createElement('input', { 
+                    type: 'date', 
+                    value: searchDate, 
+                    onChange: (e) => setSearchDate(e.target.value), 
+                    style: { flex: 1, padding: 10, borderRadius: 10, border: '1px solid #ccc', backgroundColor: '#F1F3F4', height: 45 } 
+                  })
+                ) : (
+                  <TextInput style={styles.input} value={searchDate} onChangeText={setSearchDate} placeholder="YYYY-MM-DD" />
+                )}
             </View>
             <View style={styles.row}>
+                <View style={styles.pickerWrapper}><Picker style={styles.picker} selectedValue={startTime} onValueChange={setStartTime}>{timeOptions.map(t => <Picker.Item key={t} label={t} value={t} />)}</Picker></View>
+                <View style={{justifyContent:'center'}}><Text>to</Text></View>
+                <View style={styles.pickerWrapper}><Picker style={styles.picker} selectedValue={endTime} onValueChange={setEndTime}>{timeOptions.map(t => <Picker.Item key={t} label={t} value={t} />)}</Picker></View>
+            </View>
+
+            <View style={[styles.row, {marginTop: 10}]}>
                 <TextInput style={styles.input} value={teamPostalCode} onChangeText={(t) => setTeamPostalCode(t.toUpperCase())} maxLength={3} placeholder="Postal Code" />
                 <TouchableOpacity style={styles.searchBtn} onPress={searchTeams}>
                     <Text style={styles.searchBtnText}>Search</Text>
@@ -108,27 +154,25 @@ export default function TeamFinder() {
           </View>
 
           {loadingTeams ? <ActivityIndicator size="large" color="#1A73E8" style={{marginTop: 30}}/> : (
-            <FlatList 
-                data={teams} 
-                keyExtractor={i => i.team_id.toString()} 
-                contentContainerStyle={{paddingBottom: 150}}
-                showsVerticalScrollIndicator={false}
-                renderItem={({ item }) => (
-                <View style={styles.teamCard}>
-                    <View style={styles.avatar}><Ionicons name="shield-outline" size={24} color="#1A73E8"/></View>
-                    <View style={{flex: 1, marginLeft: 15}}>
+            <View style={{paddingBottom: 100}}>
+                {teams.map((item) => (
+                <View key={item.team_id} style={[styles.teamCard, { borderLeftColor: getStatusColor(item.calculated_status) }]}>
+                    <View style={{flex: 1, marginLeft: 5}}>
                         <Text style={styles.teamName}>{item.team_name}</Text>
+                        <Text style={{fontSize: 12, color: getStatusColor(item.calculated_status), fontWeight: 'bold', marginTop: 2}}>
+                            ● {getStatusText(item.calculated_status)}
+                        </Text>
                         <Text style={styles.distanceText}><Ionicons name="location" size={12}/> {item.distance_km ? item.distance_km.toFixed(1) : 0} km away</Text>
                     </View>
                     <TouchableOpacity style={styles.challengeBtn} onPress={() => handleChallengeClick(item)}>
                         <Text style={styles.challengeTxt}>Invite</Text>
                     </TouchableOpacity>
                 </View>
-            )} />
+                ))}
+            </View>
           )}
-      </View>
+      </ScrollView>
 
-      {/* MODAL */}
       <Modal visible={isModalVisible} transparent={true} animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -137,24 +181,30 @@ export default function TeamFinder() {
                 <TouchableOpacity onPress={() => setIsModalVisible(false)}><Ionicons name="close" size={28} color="#888"/></TouchableOpacity>
             </View>
             
-            <Text style={{color: '#555', marginBottom: 15}}>Select the field slots you want to offer them:</Text>
-            
-            {myOpenMatches.length === 0 ? (
-              <Text style={{color: '#dc3545', fontWeight: 'bold'}}>You have no open fields. Go back and reserve a field first!</Text>
+            {loadingSlots ? (
+                <ActivityIndicator size="large" color="#1A73E8" style={{marginVertical: 20}} />
+            ) : myOpenMatches.length === 0 ? (
+              <View style={{alignItems: 'center', padding: 20}}>
+                  <Ionicons name="alert-circle-outline" size={40} color="#dc3545" />
+                  <Text style={{color: '#dc3545', fontWeight: 'bold', textAlign: 'center', marginTop: 10}}>No open fields found.</Text>
+              </View>
             ) : (
               <FlatList 
                 data={myOpenMatches} 
                 keyExtractor={i => i.id.toString()} 
-                style={{maxHeight: 300}}
+                style={{maxHeight: 400}}
                 renderItem={({ item }) => {
                   const isSelected = selectedMatches.includes(item.id);
                   const d = new Date(item.field_availabilities.start_time);
                   return (
                     <TouchableOpacity style={[styles.modalSlot, isSelected && styles.modalSlotSelected]} onPress={() => toggleMatchSelection(item.id)}>
-                      <Text style={[styles.slotName, isSelected && {color: '#fff'}]}>{item.field_availabilities.fields.name}</Text>
-                      <Text style={[styles.slotDetails, isSelected && {color: '#fff'}]}>
-                        {d.toLocaleDateString('en-CA', { weekday: 'short', month: 'short', day: 'numeric' })} • {d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                      </Text>
+                      <View style={{flex:1}}>
+                        <Text style={[styles.slotName, isSelected && {color: '#fff'}]}>{item.field_availabilities.fields?.name || "Field"}</Text>
+                        <Text style={[styles.slotDetails, isSelected && {color: '#fff'}]}>
+                          {d.toLocaleDateString('en-CA')} • {d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                        </Text>
+                      </View>
+                      {isSelected && <Ionicons name="checkmark-circle" size={20} color="#fff" />}
                     </TouchableOpacity>
                   );
                 }} 
@@ -178,27 +228,23 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#EEE' },
   backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F1F3F4', justifyContent: 'center', alignItems: 'center' },
   title: { fontSize: 20, fontWeight: 'bold', color: '#111' },
-
-  proCard: { backgroundColor: '#fff', borderRadius: 16, padding: 15, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 3, marginBottom: 20 },
+  proCard: { backgroundColor: '#fff', borderRadius: 16, padding: 15, shadowColor: '#000', elevation: 3, marginBottom: 20 },
   row: { flexDirection: 'row', gap: 10, marginBottom: 10 },
   pickerWrapper: { flex: 1, backgroundColor: '#F1F3F4', borderRadius: 10, height: 45, justifyContent: 'center' },
   picker: { height: 45, borderWidth: 0, backgroundColor: 'transparent' },
   input: { flex: 1, backgroundColor: '#F1F3F4', paddingHorizontal: 15, borderRadius: 10, height: 45, fontWeight: '600' },
   searchBtn: { backgroundColor: '#1A73E8', borderRadius: 10, justifyContent: 'center', paddingHorizontal: 20 },
   searchBtnText: { color: '#fff', fontWeight: 'bold' },
-
-  teamCard: { flexDirection: 'row', backgroundColor: '#fff', borderRadius: 16, padding: 15, marginBottom: 12, alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.05, elevation: 2 },
-  avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#E8F0FE', justifyContent: 'center', alignItems: 'center' },
+  teamCard: { flexDirection: 'row', backgroundColor: '#fff', borderRadius: 16, padding: 15, marginBottom: 12, alignItems: 'center', elevation: 2, borderLeftWidth: 6 },
   teamName: { fontSize: 18, fontWeight: 'bold', color: '#111' },
   distanceText: { fontSize: 13, color: '#666', marginTop: 4 },
   challengeBtn: { backgroundColor: '#E8F0FE', paddingHorizontal: 15, paddingVertical: 10, borderRadius: 20 },
   challengeTxt: { color: '#1A73E8', fontWeight: 'bold' },
-
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '90%' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
-  modalTitle: { fontSize: 20, fontWeight: 'bold' },
-  modalSlot: { backgroundColor: '#F8F9FA', padding: 15, borderRadius: 12, marginBottom: 10, borderWidth: 1, borderColor: '#E0E0E0' },
+  modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 25, maxHeight: '85%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  modalTitle: { fontSize: 22, fontWeight: 'bold' },
+  modalSlot: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F9FA', padding: 15, borderRadius: 12, marginBottom: 10, borderWidth: 1, borderColor: '#E0E0E0' },
   modalSlotSelected: { backgroundColor: '#1A73E8', borderColor: '#1A73E8' },
   slotName: { fontSize: 16, fontWeight: 'bold', color: '#333' },
   slotDetails: { fontSize: 14, color: '#666', marginTop: 4 },
