@@ -7,7 +7,7 @@ export default function AdminCalendar() {
   const [data, setData] = useState([]);
 
   useEffect(() => {
-    fetch('http://localhost:3000/api/admin/calendar')
+    fetch('https://fieldfinder-api.onrender.com/api/admin/calendar')
       .then(res => res.json())
       .then(setData)
       .catch(err => alert("Error fetching calendar"));

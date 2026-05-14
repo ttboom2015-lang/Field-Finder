@@ -67,7 +67,7 @@ export default function TeamAvailability() {
       const startOfDay = new Date(`${currentDateStr}T00:00:00`).toISOString();
       const endOfDay = new Date(`${currentDateStr}T23:59:59`).toISOString();
 
-      const response = await fetch(`http://localhost:3000/api/team-schedule?teamId=${teamId}&date=${currentDateStr}`);
+      const response = await fetch(`https://fieldfinder-api.onrender.com/api/team-schedule?teamId=${teamId}&date=${currentDateStr}`);
       const existingAvails = await response.json();
 
       const generated = generateDailySlots(currentDateStr);
@@ -133,7 +133,7 @@ export default function TeamAvailability() {
       }
 
       // 4. Send to Backend
-      const response = await fetch('http://localhost:3000/api/team-schedule/update', {
+      const response = await fetch('https://fieldfinder-api.onrender.com/api/team-schedule/update', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ toInsert, toUpdateIds, status: bulkStatus })
@@ -167,7 +167,7 @@ export default function TeamAvailability() {
         ? { toUpdateIds: [slot.db_id], status: newStatus }
         : { toInsert: [{ team_id: teamId, start_time: slot.start_time.toISOString(), end_time: slot.end_time.toISOString(), status: newStatus }] };
 
-    await fetch('http://localhost:3000/api/team-schedule/update', {
+    await fetch('https://fieldfinder-api.onrender.com/api/team-schedule/update', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
     });
     

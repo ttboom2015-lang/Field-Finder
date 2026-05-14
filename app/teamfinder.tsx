@@ -56,7 +56,7 @@ export default function TeamFinder() {
   const searchTeams = async () => {
     setLoadingTeams(true);
     try {
-      const tRes = await fetch(`http://localhost:3000/api/teams/available?sport=${teamSport}&postalCode=${teamPostalCode}&ageGroup=${teamAgeGroup}&division=${teamDivision}&gender=${teamGender}&targetDate=${searchDate}&startTime=${startTime}&endTime=${endTime}`);
+      const tRes = await fetch(`https://fieldfinder-api.onrender.com/api/teams/available?sport=${teamSport}&postalCode=${teamPostalCode}&ageGroup=${teamAgeGroup}&division=${teamDivision}&gender=${teamGender}&targetDate=${searchDate}&startTime=${startTime}&endTime=${endTime}`);
       const data = await tRes.json();
       setTeams(data);
     } catch (error) { alert("Search Error: Backend unreachable"); } finally { setLoadingTeams(false); }
@@ -70,7 +70,7 @@ export default function TeamFinder() {
     setLoadingSlots(true);   
 
     try {
-      const response = await fetch(`http://localhost:3000/api/my-open-matches?myTeamId=${myTeamId}`);
+      const response = await fetch(`https://fieldfinder-api.onrender.com/api/my-open-matches?myTeamId=${myTeamId}`);
       const data = await response.json();
       setMyOpenMatches(data || []);
     } catch (err) { alert("Error fetching your reservations."); } finally { setLoadingSlots(false); }
@@ -84,7 +84,7 @@ export default function TeamFinder() {
   const confirmChallenge = async () => {
     if (selectedMatches.length === 0) return;
     try {
-      const response = await fetch('http://localhost:3000/api/add-opponent', {
+      const response = await fetch('https://fieldfinder-api.onrender.com/api/add-opponent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ matchIds: selectedMatches, opponentTeamId: selectedOpponent.team_id, myTeamId: myTeamId })

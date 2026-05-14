@@ -23,7 +23,7 @@ export default function Matches() {
       if (!teamData) return;
 
       // Replace localhost with your IP if testing on mobile
-      const response = await fetch(`http://localhost:3000/api/matches?myTeamId=${teamData.id}`);
+      const response = await fetch(`https://fieldfinder-api.onrender.com/api/matches?myTeamId=${teamData.id}`);
       const rawData = await response.json();
 
       const groupedMap = {};

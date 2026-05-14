@@ -4,6 +4,7 @@ import { Picker } from '@react-native-picker/picker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { createClient } from '@supabase/supabase-js';
 import * as Haptics from 'expo-haptics';
+import Toast from 'react-native-root-toast';
 
 const supabase = createClient(
   'https://lsquxrvufehselooyenj.supabase.co',
@@ -90,7 +91,7 @@ export default function AdminDashboard() {
     if (!fieldId) return;
     setSyncing(true);
     try {
-        const res = await fetch('http://localhost:3000/api/sync-calendar', {
+        const res = await fetch('https://fieldfinder-api.onrender.com/api/sync-calendar', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ fieldId })

@@ -51,7 +51,7 @@ export default function EditTeam() {
         if (isMounted) setManagerEmail(user.email); 
 
         // CRITICAL: Replace localhost with your IP if you are testing on a mobile device!
-        const response = await fetch(`http://localhost:3000/api/my-team?managerId=${user.id}`);
+        const response = await fetch(`https://fieldfinder-api.onrender.com/api/my-team?managerId=${user.id}`);
         
         if (!response.ok) {
             throw new Error(`Server returned ${response.status}`);
@@ -106,7 +106,7 @@ export default function EditTeam() {
           managerName, managerPhone, hcName, hcEmail, hcPhone, ac1Name, ac1Email, ac1Phone, ac2Name, ac2Email, ac2Phone 
       };
 
-      const response = await fetch('http://localhost:3000/api/teams', {
+      const response = await fetch('https://fieldfinder-api.onrender.com/api/teams', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

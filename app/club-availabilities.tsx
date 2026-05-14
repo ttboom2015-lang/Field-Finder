@@ -64,7 +64,7 @@ export default function ClubAvailabilities() {
       if (!myTeamId) { alert("Create a team profile first!"); return; }
       if (selectedSlots.length === 0) return;
       try {
-        const response = await fetch('http://localhost:3000/api/book-match', {
+        const response = await fetch('https://fieldfinder-api.onrender.com/api/book-match', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ availabilityIds: selectedSlots, myTeamId, opponentTeamId: null })
         });

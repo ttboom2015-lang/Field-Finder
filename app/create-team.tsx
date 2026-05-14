@@ -60,7 +60,7 @@ export default function CreateTeam() {
       };
 
       // NOTE: Change localhost to your IP if testing on a physical mobile device!
-      const response = await fetch('http://localhost:3000/api/teams', {
+      const response = await fetch('https://fieldfinder-api.onrender.com/api/teams', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

@@ -35,7 +35,7 @@ export default function ParentDashboard() {
 
       if (memberData.status === 'approved') {
         // 2. Fetch matches if approved
-        const res = await fetch(`http://localhost:3000/api/matches?myTeamId=${memberData.team_id}`);
+        const res = await fetch(`https://fieldfinder-api.onrender.com/api/matches?myTeamId=${memberData.team_id}`);
         const rawData = await res.json();
         
         // Grouping logic (re-used from your matches page)
