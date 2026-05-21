@@ -35,8 +35,10 @@ export default function Login() {
         const userRole = profileData?.role || 'team_manager';
 
         if (userRole === 'club_admin') {
-          router.replace('/admin-fields');
-        } 
+  const { data: facData } = await supabase.from('facilities').select('id').eq('admin_id', authData.user.id).maybeSingle();
+  if (facData) router.replace('/admin-fields');
+  else router.replace('/admin-setup');
+}
         else if (userRole === 'parent_player') {
           router.replace('/parent-dashboard'); 
         } 
