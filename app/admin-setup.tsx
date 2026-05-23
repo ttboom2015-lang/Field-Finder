@@ -83,21 +83,8 @@ export default function AdminSetup() {
           <Text style={styles.label}>Complex / Facility Name *</Text>
           <TextInput style={styles.input} value={complexName} onChangeText={setComplexName} placeholder="e.g. Complexe Montreal" />
 
-           {/* --- THE ADDRESS PICKER --- */}
-          <Text style={styles.label}>Search Address *</Text>
-          <Text style={styles.label}>Search Address *</Text>
-
-{/* FLOATING WRAPPER FOR DROPDOWN */}
-<View style={{ zIndex: 2000, marginBottom: 10 }}> 
-    <FreeAddressPicker 
-        placeholder="Type address (e.g. 1250 Rene-Levesque, Montreal)" 
-        initialValue={address}
-        onAddressSelected={(data) => {
-            setAddress(data.fullAddress);
-            setPostalCode(data.postalCode);
-        }} 
-    />
-</View>
+          <Text style={styles.label}>Address *</Text>
+          <TextInput style={styles.input} value={address} onChangeText={setAddress} placeholder="123 Main St" />
 
           <Text style={styles.label}>Postal Code *</Text>
           <TextInput style={styles.input} value={postalCode} onChangeText={(t) => setPostalCode(t.toUpperCase())} maxLength={3} placeholder="H2X" />
