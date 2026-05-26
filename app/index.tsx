@@ -19,11 +19,8 @@ export default function Login() {
   const [role, setRole] = useState('team_manager');
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = async () => {
-    if (!email || !password) {
-      alert('Please enter email and password.');
-      return;
-    }
+    const handleLogin = async () => {
+    if (!email || !password) { alert('Please enter email and password.'); return; }
     setLoading(true);
 
     try {
@@ -35,25 +32,43 @@ export default function Login() {
         const userRole = profileData?.role || 'team_manager';
 
         if (userRole === 'club_admin') {
-  const { data: facData } = await supabase.from('facilities').select('id').eq('admin_id', authData.user.id).maybeSingle();
-  if (facData) router.replace('/admin-fields');
-  else router.replace('/admin-setup');
-}
+          const { data: facData } = await supabase.from('facilities').select('id').eq('admin_id', authData.user.id).maybeSingle();
+          if (facData) router.replace('/admin-fields');
+          else router.replace('/admin-setup');
+        } 
         else if (userRole === 'parent_player') {
           router.replace('/parent-dashboard'); 
         } 
-        else {
+                else {
           const { data: teamData } = await supabase.from('teams').select('id').eq('manager_id', authData.user.id).maybeSingle();
-          if (teamData) router.replace('/search'); 
-          else router.replace('/create-team'); 
+          if (teamData) {
+            // DYNAMIC URL CHECK (Change this to your actual Render URL)
+            const BASE_URL = process.env.NODE_ENV === 'production' 
+              ? 'https://fieldfinder-api.onrender.com' 
+              : 'http://localhost:3000';
+
+            try {
+              const res = await fetch(`${BASE_URL}/api/pending-invites?teamId=${teamData.id}`);
+              const pendingData = await res.json();
+              
+              if (pendingData && pendingData.length > 0) {
+                  router.replace('/pending-invites'); 
+              } else {
+                  router.replace('/search'); 
+              }
+            } catch (err) {
+              console.error("Invite check failed", err);
+              router.replace('/search'); // Fallback so user isn't stuck
+            }
+          } else {
+            router.replace('/create-team'); 
+          }
         }
+
       }
-    } catch (error) {
-      alert("Login Failed: " + error.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (error) { alert("Login Failed: " + error.message); } finally { setLoading(false); }
   };
+
 
   const handleRegister = async () => {
     if (!email || !password || !fullName) {

@@ -6,9 +6,6 @@ import { useRouter } from 'expo-router';
 import { createClient } from '@supabase/supabase-js';
 import { Ionicons } from '@expo/vector-icons';
 
-// NOTE: IF YOU WANT TO KEEP ADDRESS AUTOCOMPLETE FOR MVP, REMOVE IT FROM WEB OR USE STANDARD TEXT INPUT
-// (I am keeping it as a standard TextInput here so it doesn't crash your web view!)
-
 const supabase = createClient('https://lsquxrvufehselooyenj.supabase.co', 'sb_publishable_TANOMAeqEQwjo0PYtjbn_Q_WkdLbwyb');
 
 const SPORTS = ['Soccer', 'Basketball', 'Hockey', 'Baseball', 'Tennis'];
@@ -32,7 +29,9 @@ export default function Search() {
   // --- SHARED FILTERS ---
   const [sport, setSport] = useState('Soccer');
   const [postalCode, setPostalCode] = useState('H2X');
-  const [targetDateStr, setTargetDateStr] = useState(getLocalYYYYMMDD(new Date()));
+  
+  const [startDateStr, setStartDateStr] = useState(getLocalYYYYMMDD(new Date()));
+  const [endDateStr, setEndDateStr] = useState(getLocalYYYYMMDD(new Date(new Date().setDate(new Date().getDate() + 7))));
   const [startTime, setStartTime] = useState('18:00');
   const [endTime, setEndTime] = useState('20:00');
   
@@ -55,6 +54,7 @@ export default function Search() {
   const [selectedOpponent, setSelectedOpponent] = useState(null);
   const [myOpenMatches, setMyOpenMatches] = useState([]);
   const [selectedMatches, setSelectedMatches] = useState([]);
+  const [inviteNotes, setInviteNotes] = useState(''); // New Notes Field
 
   const timeOptions = Array.from({ length: 18 }, (_, i) => `${(i + 6).toString().padStart(2, '0')}:00`);
 
@@ -83,8 +83,7 @@ export default function Search() {
     
     try {
       if (searchMode === 'fields') {
-          // Replace localhost with IP for mobile testing
-          const fRes = await fetch(`https://fieldfinder-api.onrender.com/api/fields/available?sport=${sport}&startDate=${targetDateStr}&endDate=${targetDateStr}&postalCode=${postalCode}`);
+          const fRes = await fetch(`http://localhost:3000/api/fields/available?sport=${sport}&startDate=${startDateStr}&endDate=${endDateStr}&postalCode=${postalCode}`);
           let data = await fRes.json();
           
           const targetFormat = getActualFormat();
@@ -105,26 +104,59 @@ export default function Search() {
           }
           setResults(uniqueClubs);
       } else {
-          // Replace localhost with IP for mobile testing
-          const tRes = await fetch(`https://fieldfinder-api.onrender.com/api/teams/available?sport=${sport}&postalCode=${postalCode}&ageGroup=${ageGroup}&division=${division}&gender=${gender}&targetDate=${targetDateStr}&startTime=${startTime}&endTime=${endTime}`);
+          // --- RESERVATION VALIDATION CHECK ---
+          const checkRes = await fetch(`http://localhost:3000/api/my-open-matches?myTeamId=${myTeamId}`);
+          const myMatches = await checkRes.json();
+          
+          const sDate = new Date(`${startDateStr}T00:00:00`);
+          const eDate = new Date(`${endDateStr}T23:59:59`);
+          
+          const hasReservationInRange = myMatches.some(m => {
+              if (!m.field_availabilities?.start_time) return false;
+              const matchDate = new Date(m.field_availabilities.start_time);
+              return matchDate >= sDate && matchDate <= eDate;
+          });
+
+          if (!hasReservationInRange) {
+              setLoading(false);
+              const answer = window.confirm("You don't have a reservation in this date range. Do you want to lookup a field to reserve on these dates?");
+              if (answer) {
+                  setSearchMode('fields'); 
+              }
+              return; 
+          }
+
+          // --- PERFORM TEAM SEARCH ---
+          const tRes = await fetch(`http://localhost:3000/api/teams/available?sport=${sport}&postalCode=${postalCode}&ageGroup=${ageGroup}&division=${division}&gender=${gender}&targetDate=${startDateStr}&startTime=${startTime}&endTime=${endTime}`);
           const data = await tRes.json();
           setResults(data);
       }
     } catch (error) { alert("Error connecting to backend."); } finally { setLoading(false); }
   };
 
-  // --- NEW: INVITATION LOGIC (PORTED FROM TEAMFINDER) ---
+  // --- INVITATION LOGIC (TRIGGERED DIRECTLY FROM CARD) ---
   const handleChallengeClick = async (opponent) => {
     if (!myTeamId) { alert("Please create a team profile first!"); return; }
     setSelectedOpponent(opponent);
     setSelectedMatches([]); 
+    setInviteNotes('');
     setIsModalVisible(true); 
     setLoadingSlots(true);   
 
     try {
-      const response = await fetch(`https://fieldfinder-api.onrender.com/api/my-open-matches?myTeamId=${myTeamId}`);
+      const response = await fetch(`http://localhost:3000/api/my-open-matches?myTeamId=${myTeamId}`);
       const data = await response.json();
-      setMyOpenMatches(data || []);
+      
+      const sDate = new Date(`${startDateStr}T00:00:00`);
+      const eDate = new Date(`${endDateStr}T23:59:59`);
+      
+      const filteredMatches = (data || []).filter(m => {
+         if (!m.field_availabilities?.start_time) return false;
+         const matchDate = new Date(m.field_availabilities.start_time);
+         return matchDate >= sDate && matchDate <= eDate;
+      });
+      
+      setMyOpenMatches(filteredMatches);
     } catch (err) { alert("Error fetching your reservations."); } finally { setLoadingSlots(false); }
   };
 
@@ -136,16 +168,15 @@ export default function Search() {
   const confirmChallenge = async () => {
     if (selectedMatches.length === 0) return;
     try {
-      const response = await fetch('https://fieldfinder-api.onrender.com/api/add-opponent', {
+      const response = await fetch('http://localhost:3000/api/add-opponent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ matchIds: selectedMatches, opponentTeamId: selectedOpponent.team_id, myTeamId: myTeamId })
+        body: JSON.stringify({ matchIds: selectedMatches, opponentTeamId: selectedOpponent.team_id, myTeamId: myTeamId, inviteNotes })
       });
       if (response.ok) { alert(`Success! Invite sent.`); setIsModalVisible(false); } 
       else { const result = await response.json(); alert("Error: " + result.error); }
     } catch (err) { alert("Network Error"); }
   };
-  // ------------------------------------------------------
 
   const getStatusColor = (status) => {
       if (status === 'green') return '#28a745'; 
@@ -219,15 +250,27 @@ export default function Search() {
               </View>
           )}
 
-          <Text style={styles.label}>Check Availability For:</Text>
+          <Text style={styles.label}>Check Availability From - To:</Text>
           <View style={styles.inputGroupRow}>
               <View style={styles.inputGroup}>
+                  <Text style={{fontSize: 10, color: '#888', marginBottom: 2}}>From:</Text>
                   {Platform.OS === 'web' ? (
-                     createElement('input', { type: 'date', value: targetDateStr, onChange: (e) => setTargetDateStr(e.target.value), style: styles.webDate })
+                     createElement('input', { type: 'date', value: startDateStr, onChange: (e) => setStartDateStr(e.target.value), style: styles.webDate })
                   ) : (
-                     <TextInput style={styles.searchInput} value={targetDateStr} onChangeText={setTargetDateStr} placeholder="YYYY-MM-DD" />
+                     <TextInput style={styles.searchInput} value={startDateStr} onChangeText={setStartDateStr} placeholder="YYYY-MM-DD" />
                   )}
               </View>
+              <View style={styles.inputGroup}>
+                  <Text style={{fontSize: 10, color: '#888', marginBottom: 2}}>To:</Text>
+                  {Platform.OS === 'web' ? (
+                     createElement('input', { type: 'date', value: endDateStr, onChange: (e) => setEndDateStr(e.target.value), style: styles.webDate })
+                  ) : (
+                     <TextInput style={styles.searchInput} value={endDateStr} onChangeText={setEndDateStr} placeholder="YYYY-MM-DD" />
+                  )}
+              </View>
+          </View>
+          
+          <View style={styles.inputGroupRow}>
               <View style={styles.inputGroup}>
                   <View style={{flexDirection: 'row', alignItems: 'center'}}>
                       <View style={[styles.pickerWrapper, {flex: 1}]}><Picker style={styles.picker} selectedValue={startTime} onValueChange={setStartTime}>{timeOptions.map(t => <Picker.Item key={t} label={t} value={t} />)}</Picker></View>
@@ -269,7 +312,7 @@ export default function Search() {
                 </View>
             ) : searchMode === 'fields' ? (
                 results.map((item) => (
-                    <TouchableOpacity key={item.field_id} style={styles.resultCard} onPress={() => router.push(`/club-availabilities?fieldId=${item.field_id}&fieldName=${item.field_name}&startDate=${targetDateStr}&endDate=${targetDateStr}&startTime=${startTime}&endTime=${endTime}&weekendsOnly=${weekendsOnly}`)}>
+                    <TouchableOpacity key={item.field_id} style={styles.resultCard} onPress={() => router.push(`/club-availabilities?fieldId=${item.field_id}&fieldName=${item.field_name}&startDate=${startDateStr}&endDate=${endDateStr}&startTime=${startTime}&endTime=${endTime}&weekendsOnly=${weekendsOnly}`)}>
                         <View style={styles.resultInfo}>
                             <Text style={styles.resultTitle}>{item.field_name}</Text>
                             <View style={styles.badgeRow}>
@@ -285,7 +328,7 @@ export default function Search() {
                 ))
             ) : (
                 results.map((item) => (
-                    // INSTEAD OF ROUTING, WE TRIGGER THE MODAL DIRECTLY HERE:
+                    // FIX: Changed onPress from router.push to handleChallengeClick(item)
                     <TouchableOpacity key={item.team_id} style={[styles.resultCard, { borderLeftWidth: 6, borderLeftColor: getStatusColor(item.calculated_status) }]} onPress={() => handleChallengeClick(item)}>
                         <View style={styles.avatar}><Ionicons name="shield-outline" size={24} color={getStatusColor(item.calculated_status)}/></View>
                         <View style={[styles.resultInfo, {marginLeft: 15}]}>
@@ -318,18 +361,29 @@ export default function Search() {
                 <ActivityIndicator size="large" color="#1A73E8" style={{marginVertical: 20}} />
             ) : myOpenMatches.length === 0 ? (
               <View style={{alignItems: 'center', padding: 20}}>
-                  <Ionicons name="alert-circle-outline" size={40} color="#dc3545" />
-                  <Text style={{color: '#dc3545', fontWeight: 'bold', textAlign: 'center', marginTop: 10}}>
-                    You have no open fields.{"\n"}Please book a field in the "Find Fields" tab first!
+                  <Ionicons name="alert-circle-outline" size={80} color="#dc3545" />
+                  <Text style={{fontSize: 18, fontWeight: 'bold', color: '#333', marginTop: 15}}>No Fields Reserved</Text>
+                  <Text style={{color: '#666', textAlign: 'center', marginTop: 10, lineHeight: 20}}>
+                    You need to reserve a field first before you can invite an opponent to play.
                   </Text>
+                  <TouchableOpacity 
+                    style={[styles.primaryButton, {width: '100%', marginTop: 25}]}
+                    onPress={() => {
+                        setIsModalVisible(false);
+                        setSearchMode('fields'); 
+                    }}
+                  >
+                    <Text style={styles.primaryButtonText}>Find a Field Now</Text>
+                    <Ionicons name="arrow-forward" size={20} color="#fff" />
+                  </TouchableOpacity>
               </View>
             ) : (
               <>
-                <Text style={{color: '#555', marginBottom: 15}}>Select your booked fields to offer them:</Text>
+                <Text style={{color: '#555', marginBottom: 15}}>Select booked fields to offer them:</Text>
                 <FlatList 
                   data={myOpenMatches} 
                   keyExtractor={i => i.id.toString()} 
-                  style={{maxHeight: 400}}
+                  style={{maxHeight: 250}}
                   renderItem={({ item }) => {
                     const isSelected = selectedMatches.includes(item.id);
                     const d = new Date(item.field_availabilities.start_time);
@@ -346,13 +400,24 @@ export default function Search() {
                     );
                   }} 
                 />
+                
+                {/* Invite Notes */}
+                {selectedMatches.length > 0 && (
+                    <View style={{marginTop: 15}}>
+                        <Text style={{fontWeight: 'bold', marginBottom: 5}}>Add a Note (Optional)</Text>
+                        <TextInput 
+                            style={{backgroundColor: '#F1F3F4', padding: 10, borderRadius: 8, height: 60}} 
+                            placeholder="e.g. Can we split the cost 50/50?"
+                            multiline
+                            value={inviteNotes}
+                            onChangeText={setInviteNotes}
+                        />
+                        <TouchableOpacity style={styles.confirmBtn} onPress={confirmChallenge}>
+                            <Text style={styles.confirmTxt}>Send Invite ({selectedMatches.length * 30} mins)</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
               </>
-            )}
-            
-            {selectedMatches.length > 0 && (
-                <TouchableOpacity style={styles.confirmBtn} onPress={confirmChallenge}>
-                    <Text style={styles.confirmTxt}>Send Invite ({selectedMatches.length * 30} mins)</Text>
-                </TouchableOpacity>
             )}
           </View>
         </View>
@@ -399,7 +464,7 @@ const styles = StyleSheet.create({
   picker: { height: 45, borderWidth: 0, backgroundColor: 'transparent' },
   webDate: { height: 45, borderRadius: 10, border: 'none', backgroundColor: '#F1F3F4', paddingHorizontal: 15, fontFamily: 'inherit', color: '#333', width: '100%' },
   searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F1F3F4', borderRadius: 10, height: 45 },
-  searchInput: { flex: 1, paddingHorizontal: 10, fontWeight: '600', color: '#333' },
+  searchInput: { flex: 1, paddingHorizontal: 10, fontWeight: '600', color: '#333', height: '100%', outlineWidth: 0 },
   checkbox: { width: 20, height: 20, borderRadius: 4, marginRight: 8 },
   checkLabel: { fontSize: 14, fontWeight: '600', color: '#333' },
   primaryButton: { backgroundColor: '#1A73E8', borderRadius: 12, paddingVertical: 15, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 10 },

@@ -95,13 +95,20 @@ export default function AdminFields() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.headerRow}>
+            <View style={styles.headerRow}>
         <View>
           <Text style={styles.header}>{facility.name}</Text>
-          <TouchableOpacity onPress={() => router.push('/admin-setup')}><Text style={{color: '#1A73E8', fontWeight: 'bold', marginTop: 5}}>⚙️ Edit Complex Info</Text></TouchableOpacity>
+          <View style={{flexDirection: 'row', gap: 15, marginTop: 5}}>
+              <TouchableOpacity onPress={() => router.push('/admin-setup')}><Text style={{color: '#1A73E8', fontWeight: 'bold'}}>⚙️ Complex Info</Text></TouchableOpacity>
+              
+              {/* NEW BUTTONS */}
+              <TouchableOpacity onPress={() => router.push('/admin-reports')}><Text style={{color: '#1A73E8', fontWeight: 'bold'}}>📊 Reports</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => router.push('/admin-profile')}><Text style={{color: '#1A73E8', fontWeight: 'bold'}}>👤 Profile</Text></TouchableOpacity>
+          </View>
         </View>
         <TouchableOpacity style={styles.logoutBtn} onPress={() => router.replace('/')}><Text style={{color:'#fff', fontWeight: 'bold'}}>Logout</Text></TouchableOpacity>
       </View>
+
 
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.card}>

@@ -321,6 +321,7 @@ app.get('/api/matches', async (req, res) => {
             .from('confirmed_matches')
             .select(`
                 id, 
+                match_status, /* <-- NEW: Pulling the status */
                 field_availabilities(start_time, end_time, fields(name, format, sport)), 
                 team_a:team_a_id(team_name, age_group, division), 
                 team_b:team_b_id(team_name)
@@ -330,17 +331,20 @@ app.get('/api/matches', async (req, res) => {
 
         if (error) throw error;
 
-        // Filter for "Upcoming" Matches only
         const now = new Date();
-        const upcomingMatches = data.filter(m => 
-            new Date(m.field_availabilities.start_time) >= now
-        );
+        const upcomingMatches = data.filter(m => {
+            const isFuture = new Date(m.field_availabilities.start_time) >= now;
+            // NEW: Only show it on the main calendar if it's confirmed or open
+            const isValidStatus = m.match_status === 'confirmed' || m.match_status === 'open';
+            return isFuture && isValidStatus;
+        });
 
         res.json(upcomingMatches);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
+
 
 // --- 8. GET A TEAM'S OPEN SLOTS (TeamFinder.tsx) ---
 app.get('/api/my-open-matches', async (req, res) => {
@@ -394,14 +398,18 @@ app.get('/api/my-open-matches', async (req, res) => {
 
 // --- 9. ADD OPPONENT & SEND EMAIL (Used in TeamFinder.tsx) ---
 app.post('/api/add-opponent', async (req, res) => {
-    const { matchIds, opponentTeamId, myTeamId } = req.body; 
+    const { matchIds, opponentTeamId, myTeamId, inviteNotes } = req.body; 
     if (!matchIds || matchIds.length === 0) return res.status(400).json({ error: 'No matches selected!' });
 
     try {
-        // 1. Update the matches to include the opponent
+        // Update the match to 'pending'
         const { error: updateError } = await supabase
             .from('confirmed_matches')
-            .update({ team_b_id: opponentTeamId })
+            .update({ 
+                team_b_id: opponentTeamId, 
+                match_status: 'pending',
+                invite_notes: inviteNotes || null
+            })
             .in('id', matchIds);
         
         if (updateError) throw updateError;
@@ -439,7 +447,7 @@ app.post('/api/add-opponent', async (req, res) => {
             }
         }
 
-        res.json({ message: 'Opponent successfully added and email notification sent!' });
+       res.json({ message: 'Invite sent! Awaiting opponent approval.' });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -526,6 +534,55 @@ app.post('/api/sync-calendar', async (req, res) => {
         res.json({ message: `Sync complete! Created ${toInsert.length} new booked slots and updated ${toUpdateIds.length} existing slots.` });
     } catch (err) {
         console.error("Sync Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- GET PENDING INVITES FOR A TEAM ---
+app.get('/api/pending-invites', async (req, res) => {
+    const { teamId } = req.query;
+    if (!teamId) return res.status(400).json({ error: "Missing teamId" });
+
+    try {
+        const { data, error } = await supabase
+            .from('confirmed_matches')
+            .select(`
+                id, 
+                match_status,
+                invite_notes,
+                field_availabilities (start_time, end_time, fields(name, sport, format)), 
+                team_a:team_a_id (team_name, manager_name)
+            `)
+            .eq('team_b_id', teamId)
+            .eq('match_status', 'pending')
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        res.json(data || []);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- 11. RESPOND TO INVITE (ACCEPT/DECLINE) ---
+app.post('/api/respond-invite', async (req, res) => {
+    const { matchId, responseStatus, responseNotes } = req.body; // status: 'confirmed' or 'declined'
+    
+    try {
+        const { error } = await supabase
+            .from('confirmed_matches')
+            .update({ 
+                match_status: responseStatus,
+                response_notes: responseNotes || null
+            })
+            .eq('id', matchId);
+
+        if (error) throw error;
+        
+        // (Optional: You can add Nodemailer logic here later to email Team A that their invite was accepted!)
+        
+        res.json({ message: `Match ${responseStatus} successfully.` });
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });

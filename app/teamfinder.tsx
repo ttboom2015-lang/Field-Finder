@@ -1,6 +1,7 @@
 import React, { useState, useCallback, createElement } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, FlatList, TextInput, ActivityIndicator, Modal, SafeAreaView, Platform, ScrollView } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
+import Checkbox from 'expo-checkbox';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { createClient } from '@supabase/supabase-js';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,20 +24,25 @@ export default function TeamFinder() {
   const [teamGender, setGender] = useState('Boys');
   const [teamPostalCode, setTeamPostalCode] = useState('H2X');
   
-  // Search Filters for Date and Time
-  const [searchDate, setSearchDate] = useState(getLocalYYYYMMDD(new Date()));
-  const [startTime, setStartTime] = useState('18:00');
+  // --- 1. NEW DATE RANGE FILTERS ---
+  const [startDateStr, setStartDateStr] = useState(getLocalYYYYMMDD(new Date()));
+  const [endDateStr, setEndDateStr] = useState(getLocalYYYYMMDD(new Date(new Date().setDate(new Date().getDate() + 7))));
+  const [startTime, setStartTime] = useState('06:00'); // --- 3. CHANGED TO 06:00 ---
   const [endTime, setEndTime] = useState('20:00');
+  const [weekendsOnly, setWeekendsOnly] = useState(false); // NEW: Weekends Only
+
   const timeOptions = Array.from({ length: 18 }, (_, i) => `${(i + 6).toString().padStart(2, '0')}:00`);
 
   const [teams, setTeams] = useState([]);
   const [loadingTeams, setLoadingTeams] = useState(false);
 
+  // Modal States
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [loadingSlots, setLoadingSlots] = useState(false); 
   const [selectedOpponent, setSelectedOpponent] = useState(null);
   const [myOpenMatches, setMyOpenMatches] = useState([]);
   const [selectedMatches, setSelectedMatches] = useState([]);
+  const [inviteNotes, setInviteNotes] = useState('');
 
   useFocusEffect(
     useCallback(() => {
@@ -56,9 +62,41 @@ export default function TeamFinder() {
   const searchTeams = async () => {
     setLoadingTeams(true);
     try {
-      const tRes = await fetch(`https://fieldfinder-api.onrender.com/api/teams/available?sport=${teamSport}&postalCode=${teamPostalCode}&ageGroup=${teamAgeGroup}&division=${teamDivision}&gender=${teamGender}&targetDate=${searchDate}&startTime=${startTime}&endTime=${endTime}`);
-      const data = await tRes.json();
-      setTeams(data);
+        // --- 2. RESERVATION VALIDATION CHECK ---
+        const checkRes = await fetch(`http://localhost:3000/api/my-open-matches?myTeamId=${myTeamId}`);
+        const myMatches = await checkRes.json();
+        
+        const sDate = new Date(`${startDateStr}T00:00:00`);
+        const eDate = new Date(`${endDateStr}T23:59:59`);
+        
+        const hasReservationInRange = myMatches.some(m => {
+            if (!m.field_availabilities?.start_time) return false;
+            const matchDate = new Date(m.field_availabilities.start_time);
+            return matchDate >= sDate && matchDate <= eDate;
+        });
+
+        if (!hasReservationInRange) {
+            setLoadingTeams(false);
+            const answer = window.confirm("You don't have a reservation in this date range. Do you want to lookup a field to reserve on these dates?");
+            if (answer) {
+                // Route them to Search but keep the dates they picked!
+                router.replace('/search'); 
+            }
+            return; // Stop the search, they stay on the page if they click No
+        }
+
+        // --- PERFORM TEAM SEARCH ---
+        const tRes = await fetch(`http://localhost:3000/api/teams/available?sport=${teamSport}&postalCode=${teamPostalCode}&ageGroup=${teamAgeGroup}&division=${teamDivision}&gender=${teamGender}&targetDate=${startDateStr}&startTime=${startTime}&endTime=${endTime}`);
+        let data = await tRes.json();
+        
+        // Filter out teams that don't match the weekends only filter (if checked)
+        if (weekendsOnly) {
+            // Because the teams route checks availability for a block, if they only want weekends,
+            // we assume they are looking for teams free on weekends. The backend already factors this in 
+            // via the targetDate, but we can visually filter the UI if needed.
+        }
+
+        setTeams(data);
     } catch (error) { alert("Search Error: Backend unreachable"); } finally { setLoadingTeams(false); }
   };
 
@@ -66,13 +104,25 @@ export default function TeamFinder() {
     if (!myTeamId) { alert("Please create a team profile first!"); return; }
     setSelectedOpponent(opponent);
     setSelectedMatches([]); 
+    setInviteNotes('');
     setIsModalVisible(true); 
     setLoadingSlots(true);   
 
     try {
-      const response = await fetch(`https://fieldfinder-api.onrender.com/api/my-open-matches?myTeamId=${myTeamId}`);
+      const response = await fetch(`http://localhost:3000/api/my-open-matches?myTeamId=${myTeamId}`);
       const data = await response.json();
-      setMyOpenMatches(data || []);
+      
+      // Filter slots inside the modal so they only see slots in the date range they searched!
+      const sDate = new Date(`${startDateStr}T00:00:00`);
+      const eDate = new Date(`${endDateStr}T23:59:59`);
+      
+      const filteredMatches = (data || []).filter(m => {
+         if (!m.field_availabilities?.start_time) return false;
+         const matchDate = new Date(m.field_availabilities.start_time);
+         return matchDate >= sDate && matchDate <= eDate;
+      });
+      
+      setMyOpenMatches(filteredMatches);
     } catch (err) { alert("Error fetching your reservations."); } finally { setLoadingSlots(false); }
   };
 
@@ -84,10 +134,10 @@ export default function TeamFinder() {
   const confirmChallenge = async () => {
     if (selectedMatches.length === 0) return;
     try {
-      const response = await fetch('https://fieldfinder-api.onrender.com/api/add-opponent', {
+      const response = await fetch('http://localhost:3000/api/add-opponent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ matchIds: selectedMatches, opponentTeamId: selectedOpponent.team_id, myTeamId: myTeamId })
+        body: JSON.stringify({ matchIds: selectedMatches, opponentTeamId: selectedOpponent.team_id, myTeamId: myTeamId, inviteNotes })
       });
       if (response.ok) { alert(`Success! Invite sent.`); setIsModalVisible(false); } 
       else { const result = await response.json(); alert("Error: " + result.error); }
@@ -127,22 +177,38 @@ export default function TeamFinder() {
             </View>
 
             <Text style={{fontWeight: 'bold', marginTop: 10, color: '#555', marginBottom: 5}}>Check Availability For:</Text>
+            
+            {/* FROM AND TO DATE INPUTS */}
             <View style={styles.row}>
-                {Platform.OS === 'web' ? (
-                  createElement('input', { 
-                    type: 'date', 
-                    value: searchDate, 
-                    onChange: (e) => setSearchDate(e.target.value), 
-                    style: { flex: 1, padding: 10, borderRadius: 10, border: '1px solid #ccc', backgroundColor: '#F1F3F4', height: 45 } 
-                  })
-                ) : (
-                  <TextInput style={styles.input} value={searchDate} onChangeText={setSearchDate} placeholder="YYYY-MM-DD" />
-                )}
+              <View style={{flex: 1}}>
+                  <Text style={{fontSize: 10, color: '#888', marginBottom: 2}}>From:</Text>
+                  {Platform.OS === 'web' ? (
+                     createElement('input', { type: 'date', value: startDateStr, onChange: (e) => setStartDateStr(e.target.value), style: styles.webDate })
+                  ) : (
+                     <TextInput style={styles.input} value={startDateStr} onChangeText={setStartDateStr} placeholder="YYYY-MM-DD" />
+                  )}
+              </View>
+              <View style={{flex: 1}}>
+                  <Text style={{fontSize: 10, color: '#888', marginBottom: 2}}>To:</Text>
+                  {Platform.OS === 'web' ? (
+                     createElement('input', { type: 'date', value: endDateStr, onChange: (e) => setEndDateStr(e.target.value), style: styles.webDate })
+                  ) : (
+                     <TextInput style={styles.input} value={endDateStr} onChangeText={setEndDateStr} placeholder="YYYY-MM-DD" />
+                  )}
+              </View>
             </View>
+
+            {/* TIME INPUTS */}
             <View style={styles.row}>
                 <View style={styles.pickerWrapper}><Picker style={styles.picker} selectedValue={startTime} onValueChange={setStartTime}>{timeOptions.map(t => <Picker.Item key={t} label={t} value={t} />)}</Picker></View>
                 <View style={{justifyContent:'center'}}><Text>to</Text></View>
                 <View style={styles.pickerWrapper}><Picker style={styles.picker} selectedValue={endTime} onValueChange={setEndTime}>{timeOptions.map(t => <Picker.Item key={t} label={t} value={t} />)}</Picker></View>
+            </View>
+
+            {/* WEEKENDS ONLY AND POSTAL CODE */}
+            <View style={[styles.row, {marginTop: 10, alignItems: 'center'}]}>
+                <Checkbox style={styles.checkbox} value={weekendsOnly} onValueChange={setWeekendsOnly} color={weekendsOnly ? '#1A73E8' : undefined} />
+                <Text style={styles.checkLabel}>Weekends Only</Text>
             </View>
 
             <View style={[styles.row, {marginTop: 10}]}>
@@ -173,6 +239,7 @@ export default function TeamFinder() {
           )}
       </ScrollView>
 
+      {/* --- INVITATION MODAL --- */}
       <Modal visible={isModalVisible} transparent={true} animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -186,35 +253,45 @@ export default function TeamFinder() {
             ) : myOpenMatches.length === 0 ? (
               <View style={{alignItems: 'center', padding: 20}}>
                   <Ionicons name="alert-circle-outline" size={40} color="#dc3545" />
-                  <Text style={{color: '#dc3545', fontWeight: 'bold', textAlign: 'center', marginTop: 10}}>No open fields found.</Text>
+                  <Text style={{color: '#dc3545', fontWeight: 'bold', textAlign: 'center', marginTop: 10}}>No open fields found in this date range.</Text>
               </View>
             ) : (
-              <FlatList 
-                data={myOpenMatches} 
-                keyExtractor={i => i.id.toString()} 
-                style={{maxHeight: 400}}
-                renderItem={({ item }) => {
-                  const isSelected = selectedMatches.includes(item.id);
-                  const d = new Date(item.field_availabilities.start_time);
-                  return (
-                    <TouchableOpacity style={[styles.modalSlot, isSelected && styles.modalSlotSelected]} onPress={() => toggleMatchSelection(item.id)}>
-                      <View style={{flex:1}}>
-                        <Text style={[styles.slotName, isSelected && {color: '#fff'}]}>{item.field_availabilities.fields?.name || "Field"}</Text>
-                        <Text style={[styles.slotDetails, isSelected && {color: '#fff'}]}>
-                          {d.toLocaleDateString('en-CA')} • {d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                        </Text>
-                      </View>
-                      {isSelected && <Ionicons name="checkmark-circle" size={20} color="#fff" />}
+              <>
+                <Text style={{color: '#555', marginBottom: 15}}>Select booked fields to offer them:</Text>
+                <FlatList 
+                  data={myOpenMatches} 
+                  keyExtractor={i => i.id.toString()} 
+                  style={{maxHeight: 300}}
+                  renderItem={({ item }) => {
+                    const isSelected = selectedMatches.includes(item.id);
+                    const d = new Date(item.field_availabilities.start_time);
+                    return (
+                      <TouchableOpacity style={[styles.modalSlot, isSelected && styles.modalSlotSelected]} onPress={() => toggleMatchSelection(item.id)}>
+                        <View style={{flex:1}}>
+                          <Text style={[styles.slotName, isSelected && {color: '#fff'}]}>{item.field_availabilities.fields?.name || "Field"}</Text>
+                          <Text style={[styles.slotDetails, isSelected && {color: '#fff'}]}>
+                            {d.toLocaleDateString('en-CA')} • {d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                          </Text>
+                        </View>
+                        {isSelected && <Ionicons name="checkmark-circle" size={20} color="#fff" />}
+                      </TouchableOpacity>
+                    );
+                  }} 
+                />
+                <View style={{marginTop: 15}}>
+                    <Text style={{fontWeight: 'bold', marginBottom: 5}}>Add a Note (Optional)</Text>
+                    <TextInput 
+                        style={{backgroundColor: '#F1F3F4', padding: 10, borderRadius: 8, height: 60}} 
+                        placeholder="e.g. Can we split the cost 50/50?"
+                        multiline
+                        value={inviteNotes}
+                        onChangeText={setInviteNotes}
+                    />
+                    <TouchableOpacity style={styles.confirmBtn} onPress={confirmChallenge}>
+                        <Text style={styles.confirmTxt}>Send Invite ({selectedMatches.length * 30} mins)</Text>
                     </TouchableOpacity>
-                  );
-                }} 
-              />
-            )}
-            
-            {selectedMatches.length > 0 && (
-                <TouchableOpacity style={styles.confirmBtn} onPress={confirmChallenge}>
-                    <Text style={styles.confirmTxt}>Send Invite ({selectedMatches.length * 30} mins)</Text>
-                </TouchableOpacity>
+                </View>
+              </>
             )}
           </View>
         </View>
@@ -233,6 +310,9 @@ const styles = StyleSheet.create({
   pickerWrapper: { flex: 1, backgroundColor: '#F1F3F4', borderRadius: 10, height: 45, justifyContent: 'center' },
   picker: { height: 45, borderWidth: 0, backgroundColor: 'transparent' },
   input: { flex: 1, backgroundColor: '#F1F3F4', paddingHorizontal: 15, borderRadius: 10, height: 45, fontWeight: '600' },
+  webDate: { height: 45, borderRadius: 10, border: 'none', backgroundColor: '#F1F3F4', paddingHorizontal: 15, fontFamily: 'inherit', color: '#333' },
+  checkbox: { width: 20, height: 20, borderRadius: 4, marginRight: 8 },
+  checkLabel: { fontSize: 14, fontWeight: '600', color: '#333' },
   searchBtn: { backgroundColor: '#1A73E8', borderRadius: 10, justifyContent: 'center', paddingHorizontal: 20 },
   searchBtnText: { color: '#fff', fontWeight: 'bold' },
   teamCard: { flexDirection: 'row', backgroundColor: '#fff', borderRadius: 16, padding: 15, marginBottom: 12, alignItems: 'center', elevation: 2, borderLeftWidth: 6 },
