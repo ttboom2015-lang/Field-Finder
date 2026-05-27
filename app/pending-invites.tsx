@@ -24,7 +24,7 @@ export default function PendingInvites() {
         const { data: teamData } = await supabase.from('teams').select('id').eq('manager_id', user.id).maybeSingle();
         if (!teamData) return;
 
-        const response = await fetch(`http://localhost:3000/api/pending-invites?teamId=${teamData.id}`);
+        const response = await fetch(`https://fieldfinder-api.onrender.com/api/pending-invites?teamId=${teamData.id}`);
         const data = await response.json();
         setInvites(data || []);
       } catch (err) { console.error(err); } finally { setLoading(false); }
@@ -35,7 +35,7 @@ export default function PendingInvites() {
   const handleResponse = async (status) => {
     setProcessing(true);
     try {
-      const response = await fetch('http://localhost:3000/api/respond-invite', {
+      const response = await fetch('https://fieldfinder-api.onrender.com/api/respond-invite', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ matchId: activeMatchId, responseStatus: status, responseNotes })
