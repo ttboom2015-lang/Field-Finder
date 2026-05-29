@@ -67,15 +67,15 @@ app.get('/api/fields/available', async (req, res) => {
 });
 
 // --- 2. SEARCH FOR OPPONENT TEAMS (Used in TeamFinder.tsx) ---
-// --- GET /api/teams/available (UPGRADED FOR TEAM STATUS) ---
+// --- GET /api/teams/available (UPGRADED FOR OVERLAP LOGIC) ---
 app.get('/api/teams/available', async (req, res) => {
-    const { sport, postalCode, ageGroup, division, gender, targetDate, startTime, endTime } = req.query;
+    const { sport, postalCode, ageGroup, division, gender, startDate, endDate, startTime, endTime } = req.query;
     
     try {
-        // 1. Get base teams using your existing RPC (Distance & Demographics)
+        // 1. Get base teams
         const { data: teams, error } = await supabase.rpc('search_available_teams', {
             p_sport: sport || 'Soccer', 
-            p_start_date: '2020-01-01T00:00:00Z', // Dummy dates for the RPC
+            p_start_date: '2020-01-01T00:00:00Z', 
             p_end_date: '2030-01-01T00:00:00Z',
             p_postal_code: postalCode || 'H2X', 
             p_radius_km: 50,
@@ -85,63 +85,50 @@ app.get('/api/teams/available', async (req, res) => {
         });
         if (error) throw error;
 
-        // 2. If no target date/time provided, just return teams as Yellow (Unknown)
-        if (!targetDate || !startTime || !endTime) {
-            const basicTeams = teams.map(t => ({ ...t, calculated_status: 'yellow' }));
-            return res.json(basicTeams);
-        }
+        // If no dates provided, return empty (manager must provide dates to find overlaps)
+        if (!startDate || !endDate) return res.json([]);
 
-        // 3. Create ISO strings for the exact window we are searching
-        const windowStart = new Date(`${targetDate}T${startTime}:00`).toISOString();
-        const windowEnd = new Date(`${targetDate}T${endTime}:00`).toISOString();
+        const windowStart = new Date(`${startDate}T00:00:00`).toISOString();
+        const windowEnd = new Date(`${endDate}T23:59:59`).toISOString();
         const teamIds = teams.map(t => t.team_id);
 
-        // 4. Fetch their declared availabilities
+        // 2. Fetch all availabilities for these teams in the massive date range
         const { data: availabilities } = await supabase
             .from('team_availabilities')
-            .select('team_id, status')
+            .select('team_id, start_time, end_time, status')
             .in('team_id', teamIds)
             .gte('start_time', windowStart)
-            .lt('start_time', windowEnd);
+            .lte('start_time', windowEnd)
+            .eq('status', 'available'); // ONLY grab available slots
 
-        // 5. Fetch if they are ALREADY playing a match during this time!
-        const { data: matches } = await supabase
-            .from('confirmed_matches')
-            .select('team_a_id, team_b_id, field_availabilities!inner(start_time)')
-            .gte('field_availabilities.start_time', windowStart)
-            .lt('field_availabilities.start_time', windowEnd);
+        // 3. Filter teams: Keep ONLY teams that have at least one 'available' slot matching the hours requested
+        const sHour = parseInt(startTime?.split(':')[0] || '0');
+        const eHour = parseInt(endTime?.split(':')[0] || '23');
 
-        // 6. Calculate Green, Yellow, or Red
-        const enrichedTeams = teams.map(team => {
-            let statusColor = 'yellow'; // Default: Didn't set status
-            
-            // Check if they are already in a match
-            const isPlaying = matches?.some(m => m.team_a_id === team.team_id || m.team_b_id === team.team_id);
-            
-            if (isPlaying) {
-                statusColor = 'red'; // Already booked for a match!
-            } else {
-                // Check their declared availability for this block
-                const teamAvails = availabilities?.filter(a => a.team_id === team.team_id) || [];
-                if (teamAvails.length > 0) {
-                    // If ALL slots in this window are available, they are Green. Else Red.
-                    const allAvailable = teamAvails.every(a => a.status === 'available');
-                    const anyBooked = teamAvails.some(a => a.status === 'booked' || a.status === 'unavailable');
-                    
-                    if (anyBooked) statusColor = 'red';
-                    else if (allAvailable) statusColor = 'green';
-                }
-            }
-            
-            return { ...team, calculated_status: statusColor };
+        const availableTeams = teams.filter(team => {
+            const teamAvails = availabilities?.filter(a => a.team_id === team.team_id) || [];
+            if (teamAvails.length === 0) return false;
+
+            // Check if any of their available slots fall within the daily hour restrictions
+            const hasValidSlot = teamAvails.some(slot => {
+                const slotHour = new Date(slot.start_time).getHours();
+                return slotHour >= sHour && slotHour <= eHour;
+            });
+
+            return hasValidSlot;
+        }).map(team => {
+            // Attach the opponent's valid available slots to the team object so the frontend can use it!
+            const teamAvails = availabilities?.filter(a => a.team_id === team.team_id) || [];
+            return { ...team, calculated_status: 'green', available_slots: teamAvails };
         });
 
-        res.json(enrichedTeams);
+        res.json(availableTeams);
     } catch (err) {
         console.error("Team Search Error:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
+
 
 // --- NEW: FETCH TEAM SCHEDULE ---
 app.get('/api/team-schedule', async (req, res) => {

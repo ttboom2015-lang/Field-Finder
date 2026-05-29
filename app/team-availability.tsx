@@ -30,21 +30,29 @@ export default function TeamAvailability() {
   const [bulkLoading, setBulkLoading] = useState(false);
 
   // --- CORE LOGIC: GENERATE 36 SLOTS ---
+// --- ROBUST SLOT GENERATION ---
   const generateDailySlots = (dateStr) => {
     const dailySlots = [];
     const [y, m, d] = dateStr.split('-').map(Number);
-    for (let hour = 6; hour < 24; hour++) {
-      // Create slots specifically using local hours
-      const s = new Date(y, m - 1, d, hour, 0, 0, 0);
-      const e = new Date(y, m - 1, d, hour, 30, 0, 0);
-      const s2 = new Date(y, m - 1, d, hour, 30, 0, 0);
-      const e2 = new Date(y, m - 1, d, hour + 1, 0, 0, 0);
+    
+    // Explicitly iterate through 0 to 23 hours to guarantee coverage
+    for (let hour = 6; hour <= 23; hour++) {
+      // Ensure we don't roll over to hour 24
+      const nextHour = hour + 1;
       
-      dailySlots.push({ start: s, end: e });
+      const s1 = new Date(y, m - 1, d, hour, 0, 0);
+      const e1 = new Date(y, m - 1, d, hour, 30, 0);
+      
+      const s2 = new Date(y, m - 1, d, hour, 30, 0);
+      // If we are at 23:30, the end time is exactly 23:59:59 to prevent bleeding into the next day
+      const e2 = hour === 23 ? new Date(y, m - 1, d, 23, 59, 59) : new Date(y, m - 1, d, nextHour, 0, 0);
+      
+      dailySlots.push({ start: s1, end: e1 });
       dailySlots.push({ start: s2, end: e2 });
     }
     return dailySlots;
   };
+
 
   useEffect(() => {
     const init = async () => {
@@ -85,55 +93,42 @@ export default function TeamAvailability() {
   };
 
   // --- BULK UPDATE FIX ---
+  // --- BULK UPDATE LOGIC ---
   const applyBulkUpdate = async () => {
     if (!teamId) return;
     setBulkLoading(true);
     try {
-      // 1. Precise ISO boundaries for range
-      const sISO = new Date(`${bulkStartStr}T00:00:00`).toISOString();
-      const eISO = new Date(`${bulkEndStr}T23:59:59`).toISOString();
+      const sDate = new Date(`${bulkStartStr}T00:00:00`);
+      const eDate = new Date(`${bulkEndStr}T23:59:59.999`);
 
-      // 2. Fetch what already exists in that range
-      const { data: existing } = await supabase.from('team_availabilities')
-        .select('id, start_time')
-        .eq('team_id', teamId)
-        .gte('start_time', sISO)
-        .lte('start_time', eISO);
+      // 1. Get existing slots
+      // Use Render API URL for production
+      const { data: existing } = await supabase.from('team_availabilities').select('id, start_time')
+        .eq('team_id', teamId).gte('start_time', sDate.toISOString()).lte('start_time', eDate.toISOString());
 
       const existingMap = {};
-      existing?.forEach(e => {
-        existingMap[new Date(e.start_time).toISOString()] = e.id;
-      });
+      existing?.forEach(e => { existingMap[new Date(e.start_time).toISOString()] = e.id; });
 
       const toInsert = [];
       const toUpdateIds = [];
 
-      // 3. Iterate through every day in the range
-      let cursor = new Date(`${bulkStartStr}T12:00:00`); // Mid-day to avoid day-flip bugs
-      const endDateObj = new Date(`${bulkEndStr}T12:00:00`);
-
-      while (cursor <= endDateObj) {
-        const dStr = getLocalYYYYMMDD(cursor);
-        const daySlots = generateDailySlots(dStr);
-
-        daySlots.forEach(slot => {
+      let curr = new Date(sDate);
+      while (curr <= eDate) {
+        const dStr = getLocalYYYYMMDD(curr);
+        const dailySlots = generateDailySlots(dStr);
+        
+        dailySlots.forEach(slot => {
           const isoStart = slot.start.toISOString();
           if (existingMap[isoStart]) {
-            toUpdateIds.push(existingMap[isoStart]);
+            toUpdateIds.push(existingMap[isoStart]); 
           } else {
-            toInsert.push({
-              team_id: teamId,
-              start_time: isoStart,
-              end_time: slot.end.toISOString(),
-              status: bulkStatus
-            });
+            toInsert.push({ team_id: teamId, start_time: isoStart, end_time: slot.end.toISOString(), status: bulkStatus }); 
           }
         });
-        cursor.setDate(cursor.getDate() + 1);
+        curr.setDate(curr.getDate() + 1); // Move to next day
       }
 
-      // 4. Send to Backend
-      const response = await fetch('https://fieldfinder-api.onrender.com/api/team-schedule/update', {
+      const response = await fetch('http://localhost:3000/api/team-schedule/update', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ toInsert, toUpdateIds, status: bulkStatus })
@@ -146,10 +141,9 @@ export default function TeamAvailability() {
           alert("Failed to apply bulk update.");
       }
     } catch (err) {
-        console.error(err);
-        alert("Network Error during bulk update.");
+      alert("Bulk Update Error: " + err.message);
     } finally {
-        setBulkLoading(false);
+      setBulkLoading(false);
     }
   };
 
