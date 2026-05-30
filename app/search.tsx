@@ -75,7 +75,7 @@ export default function Search() {
     try {
       if (searchMode === 'fields') {
           // Replace localhost with IP for mobile testing
-          const fRes = await fetch(`hhttps://fieldfinder-api.onrender.com/api/fields/available?sport=${sport}&startDate=${startDateStr}&endDate=${endDateStr}&postalCode=${postalCode}`);
+          const fRes = await fetch(`https://fieldfinder-api.onrender.com/api/fields/available?sport=${sport}&startDate=${startDateStr}&endDate=${endDateStr}&postalCode=${postalCode}`);
           let data = await fRes.json();
           
           data = data.filter(f => f.format === getActualFormat());
@@ -97,7 +97,7 @@ export default function Search() {
 
       } else {
           // --- RESERVATION VALIDATION CHECK FOR TEAMS ---
-          const checkRes = await fetch(`http://localhost:3000/api/my-open-matches?myTeamId=${myTeamId}`);
+          const checkRes = await fetch(`https://fieldfinder-api.onrender.com/api/my-open-matches?myTeamId=${myTeamId}`);
           const myMatches = await checkRes.json();
           
           const sDate = new Date(`${startDateStr}T00:00:00`);
@@ -122,7 +122,7 @@ export default function Search() {
           }
 
           // --- PERFORM TEAM SEARCH ---
-          const tRes = await fetch(`http://localhost:3000/api/teams/available?sport=${sport}&postalCode=${postalCode}&ageGroup=${ageGroup}&division=${division}&gender=${gender}&startDate=${startDateStr}&endDate=${endDateStr}&startTime=${startTime}&endTime=${endTime}`);
+          const tRes = await fetch(`https://fieldfinder-api.onrender.com/api/teams/available?sport=${sport}&postalCode=${postalCode}&ageGroup=${ageGroup}&division=${division}&gender=${gender}&startDate=${startDateStr}&endDate=${endDateStr}&startTime=${startTime}&endTime=${endTime}`);
           let data = await tRes.json();
           
           // Apply weekendsOnly filter to teams if checked
@@ -148,7 +148,7 @@ export default function Search() {
     setLoadingSlots(true);   
 
     try {
-      const response = await fetch(`http://localhost:3000/api/my-open-matches?myTeamId=${myTeamId}`);
+      const response = await fetch(`https://fieldfinder-api.onrender.com/api/my-open-matches?myTeamId=${myTeamId}`);
       const data = await response.json();
       
       const opponentFreeSlots = opponent.available_slots || [];
@@ -181,7 +181,7 @@ export default function Search() {
   const confirmChallenge = async () => {
     if (selectedMatches.length === 0) return;
     try {
-      const response = await fetch('http://localhost:3000/api/add-opponent', {
+      const response = await fetch('https://fieldfinder-api.onrender.com/api/add-opponent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ matchIds: selectedMatches, opponentTeamId: selectedOpponent.team_id, myTeamId: myTeamId, inviteNotes })
