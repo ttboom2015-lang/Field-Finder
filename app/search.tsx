@@ -19,28 +19,36 @@ const getLocalYYYYMMDD = (date) => {
 
 export default function Search() {
   const router = useRouter();
+  
+  // --- USER DATA ---
   const [myTeamId, setMyTeamId] = useState(null);
-  const [searchMode, setSearchMode] = useState('fields'); 
 
-  // --- FILTERS ---
+  // --- TOGGLE STATE ---
+  const [searchMode, setSearchMode] = useState('fields'); // 'fields' or 'teams'
+
+  // --- SHARED FILTERS ---
   const [sport, setSport] = useState('Soccer');
   const [postalCode, setPostalCode] = useState('H2X');
   
   const [startDateStr, setStartDateStr] = useState(getLocalYYYYMMDD(new Date()));
   const [endDateStr, setEndDateStr] = useState(getLocalYYYYMMDD(new Date(new Date().setDate(new Date().getDate() + 7))));
-  const [startTime, setStartTime] = useState('06:00'); // Changed default to 06:00
+  const [startTime, setStartTime] = useState('06:00'); 
   const [endTime, setEndTime] = useState('20:00');
+  
+  // --- FIELD SPECIFIC FILTERS ---
+  const [soccerFormat, setSoccerFormat] = useState('11v11');
   const [weekendsOnly, setWeekendsOnly] = useState(false);
   
-  const [soccerFormat, setSoccerFormat] = useState('11v11');
+  // --- TEAM SPECIFIC FILTERS ---
   const [ageGroup, setAgeGroup] = useState('U12');
   const [division, setDivision] = useState('Division 1');
   const [gender, setGender] = useState('Boys');
 
+  // --- RESULTS STATES ---
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // --- MODAL STATES ---
+  // --- MODAL (INVITATION) STATES ---
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [selectedOpponent, setSelectedOpponent] = useState(null);
@@ -50,6 +58,7 @@ export default function Search() {
 
   const timeOptions = Array.from({ length: 18 }, (_, i) => `${(i + 6).toString().padStart(2, '0')}:00`);
 
+  // On Load: Get Logged In Manager's Team ID (Needed for Invites)
   useEffect(() => {
     const fetchMyTeam = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -74,11 +83,11 @@ export default function Search() {
     
     try {
       if (searchMode === 'fields') {
-          // Replace localhost with IP for mobile testing
           const fRes = await fetch(`https://fieldfinder-api.onrender.com/api/fields/available?sport=${sport}&startDate=${startDateStr}&endDate=${endDateStr}&postalCode=${postalCode}`);
           let data = await fRes.json();
           
-          data = data.filter(f => f.format === getActualFormat());
+          const targetFormat = getActualFormat();
+          data = data.filter(f => f.format === targetFormat);
           if (weekendsOnly) data = data.filter(f => [0, 6].includes(new Date(f.start_time).getDay()));
           data = data.filter(f => {
             const fieldHour = new Date(f.start_time).getHours();
@@ -96,14 +105,13 @@ export default function Search() {
           setResults(uniqueClubs);
 
       } else {
-          // --- RESERVATION VALIDATION CHECK FOR TEAMS ---
+          // --- RESERVATION VALIDATION CHECK ---
           const checkRes = await fetch(`https://fieldfinder-api.onrender.com/api/my-open-matches?myTeamId=${myTeamId}`);
           const myMatches = await checkRes.json();
           
           const sDate = new Date(`${startDateStr}T00:00:00`);
           const eDate = new Date(`${endDateStr}T23:59:59`);
           
-          // Check if they have an open match in this date range AND matching the weekendsOnly filter
           const hasReservationInRange = myMatches.some(m => {
               if (!m.field_availabilities?.start_time) return false;
               const matchDate = new Date(m.field_availabilities.start_time);
@@ -125,11 +133,9 @@ export default function Search() {
           const tRes = await fetch(`https://fieldfinder-api.onrender.com/api/teams/available?sport=${sport}&postalCode=${postalCode}&ageGroup=${ageGroup}&division=${division}&gender=${gender}&startDate=${startDateStr}&endDate=${endDateStr}&startTime=${startTime}&endTime=${endTime}`);
           let data = await tRes.json();
           
-          // Apply weekendsOnly filter to teams if checked
           if (weekendsOnly) {
               data = data.filter(team => {
                   if (!team.available_slots) return false;
-                  // Keep team if they have at least one valid slot on a weekend
                   return team.available_slots.some(slot => [0, 6].includes(new Date(slot.start_time).getDay()));
               });
           }
@@ -138,7 +144,7 @@ export default function Search() {
     } catch (error) { alert("Error connecting to backend."); } finally { setLoading(false); }
   };
 
-  // --- INVITATION LOGIC ---
+  // --- INVITATION LOGIC (TRIGGERED DIRECTLY FROM CARD) ---
   const handleChallengeClick = async (opponent) => {
     if (!myTeamId) { alert("Please create a team profile first!"); return; }
     setSelectedOpponent(opponent);
@@ -298,6 +304,7 @@ export default function Search() {
                   <Checkbox style={styles.checkbox} value={weekendsOnly} onValueChange={setWeekendsOnly} color={weekendsOnly ? '#1A73E8' : undefined} />
                   <Text style={styles.checkLabel}>Weekends Only</Text>
               </View>
+              
               <View style={styles.inputGroup}>
                   <Text style={styles.label}>Postal Code</Text>
                   <View style={styles.searchBar}>
@@ -416,6 +423,7 @@ export default function Search() {
                   }} 
                 />
                 
+                {/* Invite Notes */}
                 {selectedMatches.length > 0 && (
                     <View style={{marginTop: 15}}>
                         <Text style={{fontWeight: 'bold', marginBottom: 5}}>Add a Note (Optional)</Text>
