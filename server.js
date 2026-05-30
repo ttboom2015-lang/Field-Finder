@@ -49,22 +49,78 @@ const transporter = nodemailer.createTransport({
 // ==========================================
 
 // --- 1. SEARCH FOR AVAILABLE FIELDS (Used in Search.tsx) ---
-app.get('/api/fields/available', async (req, res) => {
-    const { sport, startDate, endDate, postalCode } = req.query;
+// --- GET /api/teams/available (STRICT OVERLAP LOGIC) ---
+app.get('/api/teams/available', async (req, res) => {
+    const { sport, postalCode, ageGroup, division, gender, startDate, endDate, startTime, endTime } = req.query;
+    
     try {
-        const { data, error } = await supabase.rpc('search_available_fields', {
-            p_sport: sport || 'Soccer',
-            p_start_date: startDate || '2026-01-01T00:00:00Z',
-            p_end_date: endDate || '2026-12-31T23:59:59Z',
-            p_postal_code: postalCode || 'H2X',
-            p_radius_km: 20
+        // 1. Get base teams from your demographic RPC
+        const { data: teams, error } = await supabase.rpc('search_available_teams', {
+            p_sport: sport || 'Soccer', 
+            p_start_date: '2020-01-01T00:00:00Z', 
+            p_end_date: '2030-01-01T00:00:00Z',
+            p_postal_code: postalCode || 'H2X', 
+            p_radius_km: 50,
+            p_age_group: ageGroup || 'U12', 
+            p_division: division || 'Division 1', 
+            p_gender: gender || 'Boys'
         });
         if (error) throw error;
-        res.json(data);
+
+        // If no dates provided, return nothing (force them to search with dates)
+        if (!startDate || !endDate) return res.json([]);
+
+        const windowStart = new Date(`${startDate}T00:00:00`).toISOString();
+        const windowEnd = new Date(`${endDate}T23:59:59`).toISOString();
+        const teamIds = teams.map(t => t.team_id);
+
+        // 2. Fetch ONLY 'available' status for these teams within the date range
+        const { data: availabilities } = await supabase
+            .from('team_availabilities')
+            .select('team_id, start_time, end_time, status')
+            .in('team_id', teamIds)
+            .gte('start_time', windowStart)
+            .lte('start_time', windowEnd)
+            .eq('status', 'available')
+            .order('start_time', { ascending: true }); // Sort chronologically!
+
+        const sHour = parseInt(startTime?.split(':')[0] || '0');
+        const eHour = parseInt(endTime?.split(':')[0] || '23');
+
+        // 3. Filter Teams & Find First Availability
+        const availableTeams = [];
+
+        for (const team of teams) {
+            // Find all green slots for this specific team
+            const teamAvails = availabilities?.filter(a => a.team_id === team.team_id) || [];
+            
+            // Filter those slots to only include hours within the daily search window (e.g. 18:00 - 20:00)
+            const validSlots = teamAvails.filter(slot => {
+                const slotHour = new Date(slot.start_time).getHours();
+                return slotHour >= sHour && slotHour <= eHour;
+            });
+
+            // If they have AT LEAST ONE valid slot, add them to the final list
+            if (validSlots.length > 0) {
+                // Because we ordered by start_time earlier, the first element is guaranteed to be the earliest!
+                const firstAvailableSlot = validSlots[0];
+                
+                availableTeams.push({ 
+                    ...team, 
+                    calculated_status: 'green', 
+                    available_slots: validSlots, // Pass all slots to frontend for the invite modal
+                    first_available: firstAvailableSlot.start_time // Pass the first time specifically for the label
+                });
+            }
+        }
+
+        res.json(availableTeams);
     } catch (err) {
+        console.error("Team Search Error:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
+
 
 // --- 2. SEARCH FOR OPPONENT TEAMS (Used in TeamFinder.tsx) ---
 // --- GET /api/teams/available (UPGRADED FOR OVERLAP LOGIC) ---

@@ -135,6 +135,221 @@ export default function Search() {
   };
 
   // --- INVITATION LOGIC (TRIGGERED DIRECTLY FROM CARD) ---
+    const handleChallengeClick = async (opponent) => {
+    if (!myTeamId) { alert("Please create a team profile first!"); return; }
+    setSelectedOpponent(opponent);
+    setSelectedMatches([]); 
+    setInviteNotes('');
+    setIsModalVisible(true); 
+    setLoadingSlots(true);   
+
+    try {
+      // 1. Fetch my open fields
+      // Use your Render API URL in production!
+      const response = await fetch(`http://localhost:3000/api/my-open-matches?myTeamId=${myTeamId}`);
+      const myOpenFields = await response.json();
+      
+      // 2. Filter my fields based on the Opponent's available slots
+      const opponentFreeSlots = opponent.available_slots || [];
+
+      const intersectingMatches = (myOpenFields || []).filter(myFieldMatch => {
+         if (!myFieldMatch.field_availabilities?.start_time) return false;
+         
+         const myStart = new Date(myFieldMatch.field_availabilities.start_time).getTime();
+         const myEnd = new Date(myFieldMatch.field_availabilities.end_time).getTime();
+
+         // Does this field time overlap exactly with any of the opponent's free slots?
+         const hasOverlap = opponentFreeSlots.some(oppSlot => {
+             const oppStart = new Date(oppSlot.start_time).getTime();
+             const oppEnd = new Date(oppSlot.end_time).getTime();
+             
+             // Exact match check (e.g. 14:00 to 14:30)
+             return (myStart === oppStart && myEnd === oppEnd);
+         });
+
+         return hasOverlap;
+      });
+      
+      setMyOpenMatches(intersectingMatches);
+    } catch (err) { 
+        alert("Error fetching your reservations."); 
+    } finally { 
+        setLoadingSlots(false); 
+    }
+  };
+
+
+  const toggleMatchSelection = (matchId) => {
+      if (selectedMatches.includes(matchId)) setSelectedMatches(selectedMatches.filter(id => id !== matchId));
+      else setSelectedMatches([...selectedMatches, matchId]);
+  };
+
+  const confirmChallenge = async () => {
+    if (selectedMatches.length === 0) return;
+    try {
+      const response = await fetch('https://fieldfinder-api.onrender.com/api/add-opponent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matchIds: selectedMatches, opponentTeamId: selectedOpponent.team_id, myTeamId: myTeamId, inviteNotes })
+      });
+      if (response.ok) { alert(`Success! Invite sent.`); setIsModalVisible(false); } 
+      else { const result = await response.json(); alert("Error: " + result.error); }
+    } catch (err) { alert("Network Error"); }
+  };
+
+  const getStatusColor = (status) => {
+      if (status === 'green') return '#28a745'; 
+      if (status === 'red') return '#dc3545';   
+      return '#ffc107'; 
+  };
+  
+  const getStatusText = (status) => {
+      if (status === 'green') return 'Available';
+      if (status === 'red') return 'Booked / Busy';
+      return 'Status Unknown';
+  };
+
+  import React, { useState, useEffect, createElement } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, ActivityIndicator, ScrollView, Platform, SafeAreaView, TextInput, Modal, FlatList } from 'react-native';
+import { Picker } from '@react-native-picker/picker';
+import Checkbox from 'expo-checkbox';
+import { useRouter } from 'expo-router';
+import { createClient } from '@supabase/supabase-js';
+import { Ionicons } from '@expo/vector-icons';
+
+const supabase = createClient('https://lsquxrvufehselooyenj.supabase.co', 'sb_publishable_TANOMAeqEQwjo0PYtjbn_Q_WkdLbwyb');
+
+const SPORTS = ['Soccer', 'Basketball', 'Hockey', 'Baseball', 'Tennis'];
+const SOCCER_FORMATS = ['5v5', '7v7', '9v9', '11v11'];
+const AGE_GROUPS = Array.from({ length: 15 }, (_, i) => `U${i + 7}`);
+
+const getLocalYYYYMMDD = (date) => {
+    const y = date.getFullYear(); const m = String(date.getMonth() + 1).padStart(2, '0'); const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+};
+
+export default function Search() {
+  const router = useRouter();
+  const [myTeamId, setMyTeamId] = useState(null);
+  const [searchMode, setSearchMode] = useState('fields'); 
+
+  // --- FILTERS ---
+  const [sport, setSport] = useState('Soccer');
+  const [postalCode, setPostalCode] = useState('H2X');
+  
+  const [startDateStr, setStartDateStr] = useState(getLocalYYYYMMDD(new Date()));
+  const [endDateStr, setEndDateStr] = useState(getLocalYYYYMMDD(new Date(new Date().setDate(new Date().getDate() + 7))));
+  const [startTime, setStartTime] = useState('06:00'); // Changed default to 06:00
+  const [endTime, setEndTime] = useState('20:00');
+  const [weekendsOnly, setWeekendsOnly] = useState(false);
+  
+  const [soccerFormat, setSoccerFormat] = useState('11v11');
+  const [ageGroup, setAgeGroup] = useState('U12');
+  const [division, setDivision] = useState('Division 1');
+  const [gender, setGender] = useState('Boys');
+
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  // --- MODAL STATES ---
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [selectedOpponent, setSelectedOpponent] = useState(null);
+  const [myOpenMatches, setMyOpenMatches] = useState([]);
+  const [selectedMatches, setSelectedMatches] = useState([]);
+  const [inviteNotes, setInviteNotes] = useState(''); 
+
+  const timeOptions = Array.from({ length: 18 }, (_, i) => `${(i + 6).toString().padStart(2, '0')}:00`);
+
+  useEffect(() => {
+    const fetchMyTeam = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data } = await supabase.from('teams').select('id').eq('manager_id', user.id).limit(1).maybeSingle();
+        if (data) setMyTeamId(data.id);
+      }
+    };
+    fetchMyTeam();
+  }, []);
+
+  const getActualFormat = () => {
+      if (sport === 'Basketball') return '5v5';
+      if (['Tennis', 'Hockey', 'Baseball'].includes(sport)) return 'Other';
+      return soccerFormat;
+  };
+
+  const handleSearch = async () => {
+    if (!postalCode) { alert("Please enter a postal code."); return; }
+    setLoading(true);
+    setResults([]);
+    
+    try {
+      if (searchMode === 'fields') {
+          // Replace localhost with IP for mobile testing
+          const fRes = await fetch(`http://localhost:3000/api/fields/available?sport=${sport}&startDate=${startDateStr}&endDate=${endDateStr}&postalCode=${postalCode}`);
+          let data = await fRes.json();
+          
+          data = data.filter(f => f.format === getActualFormat());
+          if (weekendsOnly) data = data.filter(f => [0, 6].includes(new Date(f.start_time).getDay()));
+          data = data.filter(f => {
+            const fieldHour = new Date(f.start_time).getHours();
+            return fieldHour >= parseInt(startTime) && fieldHour <= parseInt(endTime);
+          });
+
+          const uniqueClubs = [];
+          const map = new Map();
+          for (const item of data) {
+              if(!map.has(item.field_id)){
+                  map.set(item.field_id, true);
+                  uniqueClubs.push({ field_id: item.field_id, field_name: item.field_name, distance_km: item.distance_km });
+              }
+          }
+          setResults(uniqueClubs);
+
+      } else {
+          // --- RESERVATION VALIDATION CHECK FOR TEAMS ---
+          const checkRes = await fetch(`http://localhost:3000/api/my-open-matches?myTeamId=${myTeamId}`);
+          const myMatches = await checkRes.json();
+          
+          const sDate = new Date(`${startDateStr}T00:00:00`);
+          const eDate = new Date(`${endDateStr}T23:59:59`);
+          
+          // Check if they have an open match in this date range AND matching the weekendsOnly filter
+          const hasReservationInRange = myMatches.some(m => {
+              if (!m.field_availabilities?.start_time) return false;
+              const matchDate = new Date(m.field_availabilities.start_time);
+              const isRightDate = matchDate >= sDate && matchDate <= eDate;
+              const isRightDayType = weekendsOnly ? [0, 6].includes(matchDate.getDay()) : true;
+              return isRightDate && isRightDayType;
+          });
+
+          if (!hasReservationInRange) {
+              setLoading(false);
+              const answer = window.confirm("You don't have a reservation matching this date range/weekend filter. Do you want to lookup a field to reserve on these dates?");
+              if (answer) {
+                  setSearchMode('fields'); 
+              }
+              return; 
+          }
+
+          // --- PERFORM TEAM SEARCH ---
+          const tRes = await fetch(`http://localhost:3000/api/teams/available?sport=${sport}&postalCode=${postalCode}&ageGroup=${ageGroup}&division=${division}&gender=${gender}&startDate=${startDateStr}&endDate=${endDateStr}&startTime=${startTime}&endTime=${endTime}`);
+          let data = await tRes.json();
+          
+          // Apply weekendsOnly filter to teams if checked
+          if (weekendsOnly) {
+              data = data.filter(team => {
+                  if (!team.available_slots) return false;
+                  // Keep team if they have at least one valid slot on a weekend
+                  return team.available_slots.some(slot => [0, 6].includes(new Date(slot.start_time).getDay()));
+              });
+          }
+          setResults(data);
+      }
+    } catch (error) { alert("Error connecting to backend."); } finally { setLoading(false); }
+  };
+
+  // --- INVITATION LOGIC ---
   const handleChallengeClick = async (opponent) => {
     if (!myTeamId) { alert("Please create a team profile first!"); return; }
     setSelectedOpponent(opponent);
@@ -144,19 +359,28 @@ export default function Search() {
     setLoadingSlots(true);   
 
     try {
-      const response = await fetch(`https://fieldfinder-api.onrender.com/api/my-open-matches?myTeamId=${myTeamId}`);
+      const response = await fetch(`http://localhost:3000/api/my-open-matches?myTeamId=${myTeamId}`);
       const data = await response.json();
       
-      const sDate = new Date(`${startDateStr}T00:00:00`);
-      const eDate = new Date(`${endDateStr}T23:59:59`);
-      
-      const filteredMatches = (data || []).filter(m => {
-         if (!m.field_availabilities?.start_time) return false;
-         const matchDate = new Date(m.field_availabilities.start_time);
-         return matchDate >= sDate && matchDate <= eDate;
+      const opponentFreeSlots = opponent.available_slots || [];
+
+      // Filter my open fields: Only show fields that EXACTLY overlap with the opponent's 'Available' (Green) slots
+      const intersectingMatches = (data || []).filter(myFieldMatch => {
+         if (!myFieldMatch.field_availabilities?.start_time) return false;
+         
+         const myStart = new Date(myFieldMatch.field_availabilities.start_time).getTime();
+         const myEnd = new Date(myFieldMatch.field_availabilities.end_time).getTime();
+
+         const hasOverlap = opponentFreeSlots.some(oppSlot => {
+             const oppStart = new Date(oppSlot.start_time).getTime();
+             const oppEnd = new Date(oppSlot.end_time).getTime();
+             return (myStart === oppStart && myEnd === oppEnd);
+         });
+
+         return hasOverlap;
       });
       
-      setMyOpenMatches(filteredMatches);
+      setMyOpenMatches(intersectingMatches);
     } catch (err) { alert("Error fetching your reservations."); } finally { setLoadingSlots(false); }
   };
 
@@ -168,7 +392,7 @@ export default function Search() {
   const confirmChallenge = async () => {
     if (selectedMatches.length === 0) return;
     try {
-      const response = await fetch('https://fieldfinder-api.onrender.com/api/add-opponent', {
+      const response = await fetch('http://localhost:3000/api/add-opponent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ matchIds: selectedMatches, opponentTeamId: selectedOpponent.team_id, myTeamId: myTeamId, inviteNotes })
@@ -280,18 +504,16 @@ export default function Search() {
               </View>
           </View>
 
-          <View style={styles.inputGroupRow}>
-              {searchMode === 'fields' && (
-                  <View style={[styles.inputGroup, {flexDirection: 'row', alignItems: 'center'}]}>
-                      <Checkbox style={styles.checkbox} value={weekendsOnly} onValueChange={setWeekendsOnly} color={weekendsOnly ? '#1A73E8' : undefined} />
-                      <Text style={styles.checkLabel}>Weekends Only</Text>
-                  </View>
-              )}
+          <View style={[styles.inputGroupRow, {zIndex: 1000}]}>
+              <View style={[styles.inputGroup, {flexDirection: 'row', alignItems: 'center'}]}>
+                  <Checkbox style={styles.checkbox} value={weekendsOnly} onValueChange={setWeekendsOnly} color={weekendsOnly ? '#1A73E8' : undefined} />
+                  <Text style={styles.checkLabel}>Weekends Only</Text>
+              </View>
               <View style={styles.inputGroup}>
                   <Text style={styles.label}>Postal Code</Text>
                   <View style={styles.searchBar}>
                       <Ionicons name="location" size={18} color="#888" style={{marginLeft: 10}}/>
-                      <TextInput style={styles.searchInput} value={postalCode} onChangeText={(t) => setPostalCode(t.toUpperCase())} maxLength={3} placeholder="e.g. H2X" />
+                      <TextInput style={styles.searchInput} value={postalCode} onChangeText={(t) => setPostalCode(t.toUpperCase())} maxLength={3} placeholder="Postal Code" />
                   </View>
               </View>
           </View>
@@ -327,22 +549,32 @@ export default function Search() {
                     </TouchableOpacity>
                 ))
             ) : (
-                results.map((item) => (
-                    // FIX: Changed onPress from router.push to handleChallengeClick(item)
-                    <TouchableOpacity key={item.team_id} style={[styles.resultCard, { borderLeftWidth: 6, borderLeftColor: getStatusColor(item.calculated_status) }]} onPress={() => handleChallengeClick(item)}>
-                        <View style={styles.avatar}><Ionicons name="shield-outline" size={24} color={getStatusColor(item.calculated_status)}/></View>
-                        <View style={[styles.resultInfo, {marginLeft: 15}]}>
-                            <Text style={styles.resultTitle}>{item.team_name}</Text>
-                            <Text style={{fontSize: 12, color: getStatusColor(item.calculated_status), fontWeight: 'bold', marginTop: 2}}>
-                                ● {getStatusText(item.calculated_status)}
-                            </Text>
-                            <Text style={{fontSize: 12, color: '#666', marginTop: 4}}><Ionicons name="location" size={12}/> {item.distance_km ? item.distance_km.toFixed(1) : 0} km away</Text>
-                        </View>
-                        <View style={styles.challengeBtn}>
-                            <Text style={styles.challengeTxt}>Invite</Text>
-                        </View>
-                    </TouchableOpacity>
-                ))
+                results.map((item) => {
+                    const firstDate = new Date(item.first_available);
+                    const niceDate = firstDate.toLocaleDateString('en-CA', { weekday: 'short', month: 'short', day: 'numeric' });
+                    const niceTime = firstDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                    return (
+                        <TouchableOpacity key={item.team_id} style={[styles.resultCard, { borderLeftWidth: 6, borderLeftColor: '#28a745', flexDirection: 'column', alignItems: 'stretch' }]} onPress={() => handleChallengeClick(item)}>
+                            <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                                <View style={[styles.avatar, {backgroundColor: '#D4EDDA'}]}><Ionicons name="shield-outline" size={24} color="#28a745"/></View>
+                                <View style={[styles.resultInfo, {marginLeft: 15}]}>
+                                    <Text style={styles.resultTitle}>{item.team_name}</Text>
+                                    <Text style={styles.distanceText}><Ionicons name="location" size={12}/> {item.distance_km ? item.distance_km.toFixed(1) : 0} km away</Text>
+                                </View>
+                                <View style={styles.challengeBtn}><Text style={styles.challengeTxt}>Invite</Text></View>
+                            </View>
+
+                            <View style={{marginTop: 15, backgroundColor: '#F8F9FA', padding: 10, borderRadius: 8, flexDirection: 'row', alignItems: 'center'}}>
+                                <Ionicons name="calendar-outline" size={16} color="#1A73E8" style={{marginRight: 8}}/>
+                                <Text style={{fontSize: 13, color: '#333'}}>
+                                    <Text style={{fontWeight: 'bold'}}>First available: </Text>
+                                    {niceDate} at {niceTime}
+                                </Text>
+                            </View>
+                        </TouchableOpacity>
+                    );
+                })
             )}
           </View>
         )}
@@ -361,19 +593,13 @@ export default function Search() {
                 <ActivityIndicator size="large" color="#1A73E8" style={{marginVertical: 20}} />
             ) : myOpenMatches.length === 0 ? (
               <View style={{alignItems: 'center', padding: 20}}>
-                  <Ionicons name="alert-circle-outline" size={80} color="#dc3545" />
-                  <Text style={{fontSize: 18, fontWeight: 'bold', color: '#333', marginTop: 15}}>No Fields Reserved</Text>
+                  <Ionicons name="alert-circle-outline" size={60} color="#dc3545" />
+                  <Text style={{fontSize: 18, fontWeight: 'bold', color: '#333', marginTop: 15}}>No Valid Fields Reserved</Text>
                   <Text style={{color: '#666', textAlign: 'center', marginTop: 10, lineHeight: 20}}>
-                    You need to reserve a field first before you can invite an opponent to play.
+                    You don't have any field reservations that exactly overlap with this team's free time.
                   </Text>
-                  <TouchableOpacity 
-                    style={[styles.primaryButton, {width: '100%', marginTop: 25}]}
-                    onPress={() => {
-                        setIsModalVisible(false);
-                        setSearchMode('fields'); 
-                    }}
-                  >
-                    <Text style={styles.primaryButtonText}>Find a Field Now</Text>
+                  <TouchableOpacity style={[styles.primaryButton, {width: '100%', marginTop: 25}]} onPress={() => { setIsModalVisible(false); setSearchMode('fields'); }}>
+                    <Text style={styles.primaryButtonText}>Find a Field to Reserve</Text>
                     <Ionicons name="arrow-forward" size={20} color="#fff" />
                   </TouchableOpacity>
               </View>
@@ -392,7 +618,7 @@ export default function Search() {
                         <View style={{flex:1}}>
                           <Text style={[styles.slotName, isSelected && {color: '#fff'}]}>{item.field_availabilities.fields?.name || "Field"}</Text>
                           <Text style={[styles.slotDetails, isSelected && {color: '#fff'}]}>
-                            {d.toLocaleDateString('en-CA')} • {d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                            {d.toLocaleDateString('en-CA', {weekday: 'short', month: 'short', day: 'numeric'})} • {d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                           </Text>
                         </View>
                         {isSelected && <Ionicons name="checkmark-circle" size={20} color="#fff" />}
@@ -401,7 +627,6 @@ export default function Search() {
                   }} 
                 />
                 
-                {/* Invite Notes */}
                 {selectedMatches.length > 0 && (
                     <View style={{marginTop: 15}}>
                         <Text style={{fontWeight: 'bold', marginBottom: 5}}>Add a Note (Optional)</Text>
@@ -472,7 +697,7 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 20, fontWeight: 'bold', color: '#111', marginBottom: 15 },
   emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40 },
   emptyStateText: { color: '#888', fontSize: 16, marginTop: 10, fontWeight: '500' },
-  resultCard: { flexDirection: 'row', backgroundColor: '#fff', borderRadius: 16, padding: 15, marginBottom: 15, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 5, elevation: 2 },
+  resultCard: { backgroundColor: '#fff', borderRadius: 16, padding: 15, marginBottom: 15, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 5, elevation: 2 },
   resultInfo: { flex: 1 },
   resultTitle: { fontSize: 18, fontWeight: 'bold', color: '#111', marginBottom: 8 },
   badgeRow: { flexDirection: 'row', gap: 8 },
