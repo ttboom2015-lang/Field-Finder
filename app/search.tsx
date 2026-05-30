@@ -75,7 +75,7 @@ export default function Search() {
     try {
       if (searchMode === 'fields') {
           // Replace localhost with IP for mobile testing
-          const fRes = await fetch(`http://localhost:3000/api/fields/available?sport=${sport}&startDate=${startDateStr}&endDate=${endDateStr}&postalCode=${postalCode}`);
+          const fRes = await fetch(`hhttps://fieldfinder-api.onrender.com/api/fields/available?sport=${sport}&startDate=${startDateStr}&endDate=${endDateStr}&postalCode=${postalCode}`);
           let data = await fRes.json();
           
           data = data.filter(f => f.format === getActualFormat());
