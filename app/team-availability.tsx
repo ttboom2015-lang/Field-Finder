@@ -93,7 +93,7 @@ export default function TeamAvailability() {
   };
 
   // --- BULK UPDATE FIX ---
-  // --- BULK UPDATE LOGIC ---
+  // --- BULK UPDATE LOGIC - Fix 20h and above not updating issue---
   const applyBulkUpdate = async () => {
     if (!teamId) return;
     setBulkLoading(true);
@@ -128,7 +128,7 @@ export default function TeamAvailability() {
         curr.setDate(curr.getDate() + 1); // Move to next day
       }
 
-      const response = await fetch('http://localhost:3000/api/team-schedule/update', {
+      const response = await fetch('https://fieldfinder-api.onrender.com/api/team-schedule/update', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ toInsert, toUpdateIds, status: bulkStatus })
