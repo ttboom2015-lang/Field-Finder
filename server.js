@@ -49,31 +49,47 @@ const transporter = nodemailer.createTransport({
 // ==========================================
 
 // --- 1. SEARCH FOR AVAILABLE FIELDS (Used in Search.tsx) ---
+
 app.get('/api/fields/available', async (req, res) => {
     const { sport, startDate, endDate, postalCode } = req.query;
+    console.log("--- FIELD SEARCH REQUEST ---");
+    console.log("Sport:", sport, "Postal:", postalCode);
+    console.log("Start Date:", startDate, "End Date:", endDate);
+
     try {
+        // Force the date strings into perfect ISO 8601 Timestamps for PostgreSQL
+        const formattedStart = startDate ? new Date(`${startDate}T00:00:00.000Z`).toISOString() : new Date().toISOString();
+        const formattedEnd = endDate ? new Date(`${endDate}T23:59:59.999Z`).toISOString() : new Date(new Date().setDate(new Date().getDate() + 7)).toISOString();
+
         const { data, error } = await supabase.rpc('search_available_fields', {
             p_sport: sport || 'Soccer',
-            p_start_date: startDate || '2026-01-01T00:00:00Z',
-            p_end_date: endDate || '2026-12-31T23:59:59Z',
+            p_start_date: formattedStart,
+            p_end_date: formattedEnd,
             p_postal_code: postalCode || 'H2X',
             p_radius_km: 20
         });
-        if (error) throw error;
-        res.json(data);
+
+        if (error) {
+            console.error("Supabase RPC Error:", error);
+            throw error;
+        }
+
+        res.json(data || []);
     } catch (err) {
+        console.error("Field Search Route Crashed:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
 
 
+
 // --- 2. SEARCH FOR OPPONENT TEAMS (Used in TeamFinder.tsx) ---
-// --- GET /api/teams/available (UPGRADED FOR OVERLAP LOGIC) ---
+
 app.get('/api/teams/available', async (req, res) => {
     const { sport, postalCode, ageGroup, division, gender, startDate, endDate, startTime, endTime } = req.query;
     
     try {
-        // 1. Get base teams
+        // 1. Get base teams from your demographic RPC
         const { data: teams, error } = await supabase.rpc('search_available_teams', {
             p_sport: sport || 'Soccer', 
             p_start_date: '2020-01-01T00:00:00Z', 
@@ -86,42 +102,58 @@ app.get('/api/teams/available', async (req, res) => {
         });
         if (error) throw error;
 
-        // If no dates provided, return empty (manager must provide dates to find overlaps)
+        // If no dates are provided, return nothing
         if (!startDate || !endDate) return res.json([]);
 
-        const windowStart = new Date(`${startDate}T00:00:00`).toISOString();
-        const windowEnd = new Date(`${endDate}T23:59:59`).toISOString();
+        // Format dates strictly into standard ISO 8601 formats
+        const windowStart = new Date(`${startDate}T00:00:00.000Z`).toISOString();
+        const windowEnd = new Date(`${endDate}T23:59:59.999Z`).toISOString();
         const teamIds = teams.map(t => t.team_id);
 
-        // 2. Fetch all availabilities for these teams in the massive date range
+        // 2. Fetch 'available' blocks for these teams
         const { data: availabilities } = await supabase
             .from('team_availabilities')
             .select('team_id, start_time, end_time, status')
             .in('team_id', teamIds)
             .gte('start_time', windowStart)
             .lte('start_time', windowEnd)
-            .eq('status', 'available'); // ONLY grab available slots
+            .eq('status', 'available')
+            .order('start_time', { ascending: true });
 
-        // 3. Filter teams: Keep ONLY teams that have at least one 'available' slot matching the hours requested
         const sHour = parseInt(startTime?.split(':')[0] || '0');
         const eHour = parseInt(endTime?.split(':')[0] || '23');
 
-        const availableTeams = teams.filter(team => {
-            const teamAvails = availabilities?.filter(a => a.team_id === team.team_id) || [];
-            if (teamAvails.length === 0) return false;
+        // 3. Filter Teams & Normalize Timestamps to prevent "Invalid Date"
+        const availableTeams = [];
 
-            // Check if any of their available slots fall within the daily hour restrictions
-            const hasValidSlot = teamAvails.some(slot => {
+        for (const team of teams) {
+            const teamAvails = availabilities?.filter(a => a.team_id === team.team_id) || [];
+            
+            const validSlots = teamAvails.filter(slot => {
                 const slotHour = new Date(slot.start_time).getHours();
                 return slotHour >= sHour && slotHour <= eHour;
             });
 
-            return hasValidSlot;
-        }).map(team => {
-            // Attach the opponent's valid available slots to the team object so the frontend can use it!
-            const teamAvails = availabilities?.filter(a => a.team_id === team.team_id) || [];
-            return { ...team, calculated_status: 'green', available_slots: teamAvails };
-        });
+            if (validSlots.length > 0) {
+                const firstAvailableSlot = validSlots[0];
+                
+                // Format both start and end times cleanly using standardized ISO strings
+                const normalizedFirstAvailable = new Date(firstAvailableSlot.start_time).toISOString();
+                
+                const normalizedSlots = validSlots.map(slot => ({
+                    ...slot,
+                    start_time: new Date(slot.start_time).toISOString(),
+                    end_time: new Date(slot.end_time).toISOString()
+                }));
+
+                availableTeams.push({ 
+                    ...team, 
+                    calculated_status: 'green', 
+                    available_slots: normalizedSlots, 
+                    first_available: normalizedFirstAvailable 
+                });
+            }
+        }
 
         res.json(availableTeams);
     } catch (err) {
@@ -129,6 +161,7 @@ app.get('/api/teams/available', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+
 
 
 // --- NEW: FETCH TEAM SCHEDULE ---

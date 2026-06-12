@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, FlatList, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
+import { API_BASE_URL } from '../config';
 
 export default function AdminCalendar() {
   const router = useRouter();
   const [data, setData] = useState([]);
 
   useEffect(() => {
-    fetch('https://fieldfinder-api.onrender.com/api/admin/calendar')
+    fetch('\${API_BASE_URL}`/api/admin/calendar')
       .then(res => res.json())
       .then(setData)
       .catch(err => alert("Error fetching calendar"));

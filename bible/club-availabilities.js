@@ -8,20 +8,12 @@ const supabase = createClient('https://lsquxrvufehselooyenj.supabase.co', 'sb_pu
 
 export default function ClubAvailabilities() {
   const router = useRouter();
-  const { fieldId, fieldName, startDate, endDate, startTime, endTime, weekendsOnly } = useLocalSearchParams<{
-    fieldId: string;
-    fieldName: string;
-    startDate: string;
-    endDate: string;
-    startTime: string;
-    endTime: string;
-    weekendsOnly: string;
-  }>(); 
+  const { fieldId, fieldName, startDate, endDate, startTime, endTime, weekendsOnly } = useLocalSearchParams(); 
   
-  const [myTeamId, setMyTeamId] = useState<string | null>(null);
-  const [slots, setSlots] = useState<any[]>([]);
-  const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [myTeamId, setMyTeamId] = useState(null);
+  const [slots, setSlots] = useState([]);
+  const [selectedSlots, setSelectedSlots] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const loadData = async () => {
@@ -34,6 +26,7 @@ export default function ClubAvailabilities() {
       const queryStart = startDate ? new Date(`${startDate}T00:00:00`).toISOString() : new Date().toISOString();
       const queryEnd = endDate ? new Date(`${endDate}T23:59:59`).toISOString() : new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString();
 
+      // NEW: Explicitly selecting 'price' along with other columns
       const { data: availData } = await supabase
         .from('field_availabilities')
         .select('id, start_time, end_time, status, price, field_id')
@@ -45,6 +38,7 @@ export default function ClubAvailabilities() {
 
       let finalSlots = availData || [];
       
+      // Apply the Weekend Filter
       if (weekendsOnly === 'true') {
           finalSlots = finalSlots.filter(slot => {
               const day = new Date(slot.start_time).getDay();
@@ -52,6 +46,7 @@ export default function ClubAvailabilities() {
           });
       }
 
+      // Apply the Time Range filter
       if (startTime && endTime) {
         const sHour = parseInt(startTime.split(':')[0]);
         const eHour = parseInt(endTime.split(':')[0]);
@@ -66,12 +61,9 @@ export default function ClubAvailabilities() {
     if (fieldId) loadData();
   }, [fieldId, startDate, endDate, startTime, endTime, weekendsOnly]);
 
-  const toggleSlotSelection = (slotId: string) => {
-      if (selectedSlots.includes(slotId)) {
-        setSelectedSlots(selectedSlots.filter(id => id !== slotId)); 
-      } else {
-        setSelectedSlots([...selectedSlots, slotId]); 
-      }
+  const toggleSlotSelection = (slotId) => {
+      if (selectedSlots.includes(slotId)) setSelectedSlots(selectedSlots.filter(id => id !== slotId)); 
+      else setSelectedSlots([...selectedSlots, slotId]); 
   };
 
   const bookSelectedSlots = async () => {
@@ -87,8 +79,7 @@ export default function ClubAvailabilities() {
         
         if (response.ok) { 
           if (window.confirm(`Success! You booked ${selectedSlots.length * 30} minutes.\n\nFind an opponent for this field now?`)) {
-              // Smooth redirect directly back to Search screen with Find Opponents tab active
-              router.replace('/search?mode=teams');
+              router.replace('/teamfinder');
           } else { 
               router.replace('/search'); 
           }
@@ -101,6 +92,7 @@ export default function ClubAvailabilities() {
       }
   };
 
+  // NEW: Calculate the total price of all selected slots dynamically
   const calculateTotalPrice = () => {
       return selectedSlots.reduce((sum, slotId) => {
           const slot = slots.find(s => s.id === slotId);
@@ -138,12 +130,14 @@ export default function ClubAvailabilities() {
                 <TouchableOpacity style={[styles.slotCard, isSelected && styles.slotCardSelected]} onPress={() => toggleSlotSelection(item.id)}>
                   <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
                       <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                          <Ionicons name={isSelected ? "checkmark-circle" : "time-outline"} size={24} color={isSelected ? "#1A73E8" : "#888"} style={{marginRight: 15}} />
+                          <Ionicons name={isSelected ? "checkmark-circle" : "time-outline"} size={24} color={isSelected ? "#1A73E8" : "#888"} style={{marginRight: 15}}/>
                           <View>
                               <Text style={[styles.slotDate, isSelected && styles.textBlue]}>{d.toLocaleDateString('en-CA', { weekday: 'long', month: 'short', day: 'numeric' })}</Text>
                               <Text style={styles.slotTime}>{d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - {dEnd.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</Text>
                           </View>
                       </View>
+                      
+                      {/* NEW: PRICE DISPLAY PER SLOT */}
                       <Text style={[styles.slotPrice, isSelected && styles.textBlue]}>
                           ${Number(item.price || 0).toFixed(2)}
                       </Text>
@@ -176,12 +170,16 @@ const styles = StyleSheet.create({
   backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F1F3F4', justifyContent: 'center', alignItems: 'center' },
   title: { fontSize: 20, fontWeight: 'bold', color: '#111' },
   subtitle: { fontSize: 13, color: '#1A73E8', fontWeight: '600', marginTop: 2 },
+  
   slotCard: { backgroundColor: '#fff', padding: 15, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: '#E0E0E0', elevation: 1 },
   slotCardSelected: { backgroundColor: '#E8F0FE', borderColor: '#1A73E8', borderWidth: 2 },
   slotDate: { fontSize: 16, fontWeight: '700', color: '#333' },
   textBlue: { color: '#1A73E8', fontWeight: 'bold' },
   slotTime: { fontSize: 14, color: '#666', marginTop: 2, fontWeight: '500' },
+  
+  // NEW: Slot Price Style
   slotPrice: { fontSize: 16, fontWeight: 'bold', color: '#333' },
+  
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   emptyStateText: { fontSize: 16, color: '#888', marginTop: 10, fontWeight: '500' },
   bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#fff', flexDirection: 'row', padding: 20, paddingBottom: Platform.OS === 'ios' ? 35 : 20, borderTopWidth: 1, borderTopColor: '#EEE', alignItems: 'center', elevation: 10 },

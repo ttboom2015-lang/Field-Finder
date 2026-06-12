@@ -1,169 +1,82 @@
-import { Ionicons } from '@expo/vector-icons';
+import React, { useState, useEffect, createElement } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, ActivityIndicator, ScrollView, Platform, SafeAreaView, TextInput, Modal, FlatList } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import Checkbox from 'expo-checkbox';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { createElement, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Modal, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { createClient } from '@supabase/supabase-js';
+import { Ionicons } from '@expo/vector-icons';
 
 import { API_BASE_URL } from '../config';
-import { supabase } from '../supabaseClient';
 
+const supabase = createClient('https://lsquxrvufehselooyenj.supabase.co', 'sb_publishable_TANOMAeqEQwjo0PYtjbn_Q_WkdLbwyb');
 
-const getLocalYYYYMMDD = (date: Date): string => {
-    const y = date.getFullYear(); 
-    const m = String(date.getMonth() + 1).padStart(2, '0'); 
-    const d = String(date.getDate()).padStart(2, '0');
+const SPORTS = ['Soccer', 'Basketball', 'Hockey', 'Baseball', 'Tennis'];
+const SOCCER_FORMATS = ['5v5', '7v7', '9v9', '11v11'];
+const AGE_GROUPS = Array.from({ length: 15 }, (_, i) => `U${i + 7}`);
+
+const getLocalYYYYMMDD = (date) => {
+    const y = date.getFullYear(); const m = String(date.getMonth() + 1).padStart(2, '0'); const d = String(date.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
 };
 
-interface SportConfig {
-  sport_name: string;
-  formats: string[];
-}
-
 export default function Search() {
   const router = useRouter();
-  const { mode } = useLocalSearchParams<{ mode?: string }>();
   
   // --- USER DATA ---
-  const [myTeamId, setMyTeamId] = useState<string | null>(null);
-  const [managerName, setManagerName] = useState<string>('Manager');
-  const [userRole, setUserRole] = useState<string | null>(null);
+  const [myTeamId, setMyTeamId] = useState(null);
 
   // --- TOGGLE STATE ---
-  const [searchMode, setSearchMode] = useState<'fields' | 'teams'>(mode === 'teams' ? 'teams' : 'fields');
+  const [searchMode, setSearchMode] = useState('fields'); // 'fields' or 'teams'
 
-  // Update searchMode if query param changes dynamically
-  useEffect(() => {
-    if (mode === 'teams') {
-      setSearchMode('teams');
-    } else if (mode === 'fields') {
-      setSearchMode('fields');
-    }
-  }, [mode]);
-
-  // --- DYNAMIC SPORTS, FORMATS, AND AGE GROUPS CONFIG ---
-  const [sportsConfig, setSportsConfig] = useState<SportConfig[]>([]);
-  const [availableFormats, setAvailableFormats] = useState<string[]>([]);
-  const [ageGroupsList, setAgeGroupsList] = useState<string[]>([]);
-
-  // --- SHARED FILTERS (DATE & LOCATION) ---
-  const [sport, setSport] = useState<string>('');
-  const [postalCode, setPostalCode] = useState<string>('H2X');
+  // --- SHARED FILTERS ---
+  const [sport, setSport] = useState('Soccer');
+  const [postalCode, setPostalCode] = useState('H2X');
   
-  const [startDateStr, setStartDateStr] = useState<string>(getLocalYYYYMMDD(new Date()));
-  const [endDateStr, setEndDateStr] = useState<string>(getLocalYYYYMMDD(new Date(new Date().setDate(new Date().getDate() + 7))));
-  const [startTime, setStartTime] = useState<string>('06:00'); 
-  const [endTime, setEndTime] = useState<string>('20:00');
+  const [startDateStr, setStartDateStr] = useState(getLocalYYYYMMDD(new Date()));
+  const [endDateStr, setEndDateStr] = useState(getLocalYYYYMMDD(new Date(new Date().setDate(new Date().getDate() + 7))));
+  const [startTime, setStartTime] = useState('06:00'); 
+  const [endTime, setEndTime] = useState('20:00');
   
   // --- FIELD SPECIFIC FILTERS ---
-  const [soccerFormat, setSoccerFormat] = useState<string>('');
-  const [weekendsOnly, setWeekendsOnly] = useState<boolean>(false);
+  const [soccerFormat, setSoccerFormat] = useState('11v11');
+  const [weekendsOnly, setWeekendsOnly] = useState(false);
   
   // --- TEAM SPECIFIC FILTERS ---
-  const [ageGroup, setAgeGroup] = useState<string>('');
-  const [division, setDivision] = useState<string>('Division 1');
-  const [gender, setGender] = useState<string>('Boys');
+  const [ageGroup, setAgeGroup] = useState('U12');
+  const [division, setDivision] = useState('Division 1');
+  const [gender, setGender] = useState('Boys');
 
   // --- RESULTS STATES ---
-  const [results, setResults] = useState<any[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
 
   // --- MODAL (INVITATION) STATES ---
-  const [isModalVisible, setIsModalVisible] = useState<boolean>(false);
-  const [loadingSlots, setLoadingSlots] = useState<boolean>(false);
-  const [selectedOpponent, setSelectedOpponent] = useState<any | null>(null);
-  const [myOpenMatches, setMyOpenMatches] = useState<any[]>([]);
-  const [selectedMatches, setSelectedMatches] = useState<string[]>([]);
-  const [inviteNotes, setInviteNotes] = useState<string>(''); 
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [selectedOpponent, setSelectedOpponent] = useState(null);
+  const [myOpenMatches, setMyOpenMatches] = useState([]);
+  const [selectedMatches, setSelectedMatches] = useState([]);
+  const [inviteNotes, setInviteNotes] = useState(''); 
 
   const timeOptions = Array.from({ length: 18 }, (_, i) => `${(i + 6).toString().padStart(2, '0')}:00`);
 
-  // Load sports configurations and age groups from database with robust fallbacks
+  // On Load: Get Logged In Manager's Team ID (Needed for Invites)
   useEffect(() => {
-    const loadConfig = async () => {
-      try {
-        // 1. Fetch Dynamic Sports Config
-        const { data: sportsData, error: sportsErr } = await supabase.from('sports_config').select('*').order('sport_name', { ascending: true });
-        if (sportsErr) throw sportsErr;
-
-        if (sportsData && sportsData.length > 0) {
-          setSportsConfig(sportsData);
-          setSport(sportsData[0].sport_name);
-          setAvailableFormats(sportsData[0].formats);
-          setSoccerFormat(sportsData[0].formats[0]);
-        } else {
-          const defaultData = [
-            { sport_name: 'Soccer', formats: ['5v5', '7v7', '9v9', '11v11'] },
-            { sport_name: 'Basketball', formats: ['5v5'] },
-            { sport_name: 'Tennis', formats: ['1v1', '2v2', 'Other'] },
-            { sport_name: 'Hockey', formats: ['Other'] },
-            { sport_name: 'Baseball', formats: ['Other'] }
-          ];
-          setSportsConfig(defaultData);
-          setSport(defaultData[0].sport_name);
-          setAvailableFormats(defaultData[0].formats);
-          setSoccerFormat(defaultData[0].formats[0]);
-        }
-
-        // 2. Fetch Dynamic Age Groups Config
-        const { data: ageData, error: ageErr } = await supabase.from('age_groups_config').select('name').order('name', { ascending: true });
-        if (ageErr) throw ageErr;
-
-        if (ageData && ageData.length > 0) {
-          const fetchedAges = ageData.map(i => i.name);
-          setAgeGroupsList(fetchedAges);
-          setAgeGroup(fetchedAges[0]);
-        } else {
-          const defaultAges = Array.from({ length: 15 }, (_, i) => `U${i + 7}`);
-          setAgeGroupsList(defaultAges);
-          setAgeGroup(defaultAges[0]);
-        }
-      } catch (err) {
-        // Safe fallbacks on network offline
-        const fallbackSports = [{ sport_name: 'Soccer', formats: ['5v5', '7v7', '9v9', '11v11'] }];
-        setSportsConfig(fallbackSports);
-        setSport(fallbackSports[0].sport_name);
-        setAvailableFormats(fallbackSports[0].formats);
-        setSoccerFormat(fallbackSports[0].formats[0]);
-
-        const fallbackAges = ['U7', 'U12', 'Adult', 'Business'];
-        setAgeGroupsList(fallbackAges);
-        setAgeGroup(fallbackAges[0]);
-      }
-    };
-
-    loadConfig();
-  }, []);
-
-  const handleSportChange = (selectedSport: string) => {
-    setSport(selectedSport);
-    const selected = sportsConfig.find(item => item.sport_name === selectedSport);
-    if (selected) {
-      setAvailableFormats(selected.formats);
-      setSoccerFormat(selected.formats[0]);
-    }
-  };
-
-  // On Load: Get Logged In Manager's Name, Role, and Team ID
-  useEffect(() => {
-    const fetchMyTeamAndProfile = async () => {
+    const fetchMyTeam = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        // Fetch manager's name and role from profiles table
-        const { data: profile } = await supabase.from('profiles').select('full_name, role').eq('id', user.id).maybeSingle();
-        if (profile) {
-          setManagerName(profile.full_name || 'Manager');
-          setUserRole(profile.role);
-        }
-
-        // Fetch team ID
         const { data } = await supabase.from('teams').select('id').eq('manager_id', user.id).limit(1).maybeSingle();
         if (data) setMyTeamId(data.id);
       }
     };
-    fetchMyTeamAndProfile();
+    fetchMyTeam();
   }, []);
+
+  const getActualFormat = () => {
+      if (sport === 'Basketball') return '5v5';
+      if (['Tennis', 'Hockey', 'Baseball'].includes(sport)) return 'Other';
+      return soccerFormat;
+  };
 
   const handleSearch = async () => {
     if (!postalCode) { alert("Please enter a postal code."); return; }
@@ -175,14 +88,15 @@ export default function Search() {
           const fRes = await fetch(`https://fieldfinder-api.onrender.com/api/fields/available?sport=${sport}&startDate=${startDateStr}&endDate=${endDateStr}&postalCode=${postalCode}`);
           let data = await fRes.json();
           
-          data = data.filter((f: any) => f.format === soccerFormat);
-          if (weekendsOnly) data = data.filter((f: any) => [0, 6].includes(new Date(f.start_time).getDay()));
-          data = data.filter((f: any) => {
+          const targetFormat = getActualFormat();
+          data = data.filter(f => f.format === targetFormat);
+          if (weekendsOnly) data = data.filter(f => [0, 6].includes(new Date(f.start_time).getDay()));
+          data = data.filter(f => {
             const fieldHour = new Date(f.start_time).getHours();
             return fieldHour >= parseInt(startTime) && fieldHour <= parseInt(endTime);
           });
 
-          const uniqueClubs: any[] = [];
+          const uniqueClubs = [];
           const map = new Map();
           for (const item of data) {
               if(!map.has(item.field_id)){
@@ -200,7 +114,7 @@ export default function Search() {
           const sDate = new Date(`${startDateStr}T00:00:00`);
           const eDate = new Date(`${endDateStr}T23:59:59`);
           
-          const hasReservationInRange = myMatches.some((m: any) => {
+          const hasReservationInRange = myMatches.some(m => {
               if (!m.field_availabilities?.start_time) return false;
               const matchDate = new Date(m.field_availabilities.start_time);
               const isRightDate = matchDate >= sDate && matchDate <= eDate;
@@ -222,9 +136,9 @@ export default function Search() {
           let data = await tRes.json();
           
           if (weekendsOnly) {
-              data = data.filter((team: any) => {
+              data = data.filter(team => {
                   if (!team.available_slots) return false;
-                  return team.available_slots.some((slot: any) => [0, 6].includes(new Date(slot.start_time).getDay()));
+                  return team.available_slots.some(slot => [0, 6].includes(new Date(slot.start_time).getDay()));
               });
           }
           setResults(data);
@@ -233,7 +147,7 @@ export default function Search() {
   };
 
   // --- INVITATION LOGIC (TRIGGERED DIRECTLY FROM CARD) ---
-  const handleChallengeClick = async (opponent: any) => {
+  const handleChallengeClick = async (opponent) => {
     if (!myTeamId) { alert("Please create a team profile first!"); return; }
     setSelectedOpponent(opponent);
     setSelectedMatches([]); 
@@ -248,13 +162,13 @@ export default function Search() {
       const opponentFreeSlots = opponent.available_slots || [];
 
       // Filter my open fields: Only show fields that EXACTLY overlap with the opponent's 'Available' (Green) slots
-      const intersectingMatches = (data || []).filter((myFieldMatch: any) => {
+      const intersectingMatches = (data || []).filter(myFieldMatch => {
          if (!myFieldMatch.field_availabilities?.start_time) return false;
          
          const myStart = new Date(myFieldMatch.field_availabilities.start_time).getTime();
          const myEnd = new Date(myFieldMatch.field_availabilities.end_time).getTime();
 
-         const hasOverlap = opponentFreeSlots.some((oppSlot: any) => {
+         const hasOverlap = opponentFreeSlots.some(oppSlot => {
              const oppStart = new Date(oppSlot.start_time).getTime();
              const oppEnd = new Date(oppSlot.end_time).getTime();
              return (myStart === oppStart && myEnd === oppEnd);
@@ -267,12 +181,9 @@ export default function Search() {
     } catch (err) { alert("Error fetching your reservations."); } finally { setLoadingSlots(false); }
   };
 
-  const toggleMatchSelection = (matchId: string) => {
-      if (selectedMatches.includes(matchId)) {
-        setSelectedMatches(selectedMatches.filter(id => id !== matchId));
-      } else {
-        setSelectedMatches([...selectedMatches, matchId]);
-      }
+  const toggleMatchSelection = (matchId) => {
+      if (selectedMatches.includes(matchId)) setSelectedMatches(selectedMatches.filter(id => id !== matchId));
+      else setSelectedMatches([...selectedMatches, matchId]);
   };
 
   const confirmChallenge = async () => {
@@ -288,22 +199,28 @@ export default function Search() {
     } catch (err) { alert("Network Error"); }
   };
 
+  const getStatusColor = (status) => {
+      if (status === 'green') return '#28a745'; 
+      if (status === 'red') return '#dc3545';   
+      return '#ffc107'; 
+  };
+  
+  const getStatusText = (status) => {
+      if (status === 'green') return 'Available';
+      if (status === 'red') return 'Booked / Busy';
+      return 'Status Unknown';
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         
         <View style={styles.headerContainer}>
             <View>
-                <Text style={styles.greeting}>Welcome, {managerName}</Text>
+                <Text style={styles.greeting}>Welcome, Manager</Text>
                 <Text style={styles.title}>Dashboard</Text>
             </View>
             <View style={{flexDirection: 'row', gap: 10}}>
-                {/* SETTINGS GEAR CONDITIONAL TO SUPER ADMIN */}
-                {userRole === 'super_admin' && (
-                    <TouchableOpacity style={[styles.profileIcon, { backgroundColor: '#FEE2E2' }]} onPress={() => router.push('/super-admin-config')}>
-                        <Ionicons name="settings-sharp" size={24} color="#EF4444" />
-                    </TouchableOpacity>
-                )}
                 <TouchableOpacity style={styles.profileIcon} onPress={() => router.push('/team-availability')}>
                     <Ionicons name="calendar" size={24} color="#1A73E8" />
                 </TouchableOpacity>
@@ -328,25 +245,20 @@ export default function Search() {
           <View style={styles.inputGroupRow}>
               <View style={styles.inputGroup}>
                   <Text style={styles.label}>Sport</Text>
-                  <View style={styles.pickerWrapper}>
-                    <Picker style={styles.picker} selectedValue={sport} onValueChange={(itemValue) => handleSportChange(itemValue)}>
-                      {sportsConfig.map(s => <Picker.Item key={s.sport_name} label={s.sport_name} value={s.sport_name} />)}
-                    </Picker>
-                  </View>
+                  <View style={styles.pickerWrapper}><Picker style={styles.picker} selectedValue={sport} onValueChange={setSport}>{SPORTS.map(s => <Picker.Item key={s} label={s} value={s} />)}</Picker></View>
               </View>
               
               <View style={styles.inputGroup}>
-                  <Text style={styles.label}>{searchMode === 'fields' ? 'Category' : 'Gender'}</Text>
+                  <Text style={styles.label}>{searchMode === 'fields' ? 'Format' : 'Gender'}</Text>
                   <View style={styles.pickerWrapper}>
                       {searchMode === 'fields' ? (
-                        <Picker style={styles.picker} selectedValue={soccerFormat} onValueChange={(itemValue) => setSoccerFormat(itemValue)}>
-                          {availableFormats.map(fmt => <Picker.Item key={fmt} label={fmt} value={fmt} />)}
-                        </Picker>
+                          sport === 'Soccer' ? (
+                              <Picker style={styles.picker} selectedValue={soccerFormat} onValueChange={setSoccerFormat}>{SOCCER_FORMATS.map(f => <Picker.Item key={f} label={f} value={f} />)}</Picker>
+                          ) : (
+                              <View style={{height: 45, justifyContent: 'center', paddingHorizontal: 15}}><Text style={{color: '#666', fontWeight: 'bold'}}>{getActualFormat()}</Text></View>
+                          )
                       ) : (
-                        <Picker style={styles.picker} selectedValue={gender} onValueChange={(itemValue) => setGender(itemValue)}>
-                          <Picker.Item label="Boys" value="Boys" />
-                          <Picker.Item label="Girls" value="Girls" />
-                        </Picker>
+                          <Picker style={styles.picker} selectedValue={gender} onValueChange={setGender}><Picker.Item label="Boys" value="Boys" /><Picker.Item label="Girls" value="Girls" /></Picker>
                       )}
                   </View>
               </View>
@@ -354,15 +266,8 @@ export default function Search() {
 
           {searchMode === 'teams' && (
               <View style={styles.inputGroupRow}>
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Age Group</Text>
-                    <View style={styles.pickerWrapper}>
-                      <Picker style={styles.picker} selectedValue={ageGroup} onValueChange={(itemValue) => setAgeGroup(itemValue)}>
-                        {ageGroupsList.map(a => <Picker.Item key={a} label={a} value={a} />)}
-                      </Picker>
-                    </View>
-                  </View>
-                  <View style={styles.inputGroup}><Text style={styles.label}>Division</Text><View style={styles.pickerWrapper}><Picker style={styles.picker} selectedValue={division} onValueChange={(itemValue) => setDivision(itemValue)}><Picker.Item label="Div 1" value="Division 1" /><Picker.Item label="Div 2" value="Division 2" /><Picker.Item label="Div 3" value="Division 3" /></Picker></View></View>
+                  <View style={styles.inputGroup}><Text style={styles.label}>Age Group</Text><View style={styles.pickerWrapper}><Picker style={styles.picker} selectedValue={ageGroup} onValueChange={setAgeGroup}>{AGE_GROUPS.map(a => <Picker.Item key={a} label={a} value={a} />)}</Picker></View></View>
+                  <View style={styles.inputGroup}><Text style={styles.label}>Division</Text><View style={styles.pickerWrapper}><Picker style={styles.picker} selectedValue={division} onValueChange={setDivision}><Picker.Item label="Div 1" value="Division 1" /><Picker.Item label="Div 2" value="Division 2" /><Picker.Item label="Div 3" value="Division 3" /></Picker></View></View>
               </View>
           )}
 
@@ -371,7 +276,7 @@ export default function Search() {
               <View style={styles.inputGroup}>
                   <Text style={{fontSize: 10, color: '#888', marginBottom: 2}}>From:</Text>
                   {Platform.OS === 'web' ? (
-                     createElement('input', { type: 'date', value: startDateStr, onChange: (e: any) => setStartDateStr(e.target.value), style: styles.webDate })
+                     createElement('input', { type: 'date', value: startDateStr, onChange: (e) => setStartDateStr(e.target.value), style: styles.webDate })
                   ) : (
                      <TextInput style={styles.searchInput} value={startDateStr} onChangeText={setStartDateStr} placeholder="YYYY-MM-DD" />
                   )}
@@ -379,7 +284,7 @@ export default function Search() {
               <View style={styles.inputGroup}>
                   <Text style={{fontSize: 10, color: '#888', marginBottom: 2}}>To:</Text>
                   {Platform.OS === 'web' ? (
-                     createElement('input', { type: 'date', value: endDateStr, onChange: (e: any) => setEndDateStr(e.target.value), style: styles.webDate })
+                     createElement('input', { type: 'date', value: endDateStr, onChange: (e) => setEndDateStr(e.target.value), style: styles.webDate })
                   ) : (
                      <TextInput style={styles.searchInput} value={endDateStr} onChangeText={setEndDateStr} placeholder="YYYY-MM-DD" />
                   )}
@@ -389,9 +294,9 @@ export default function Search() {
           <View style={styles.inputGroupRow}>
               <View style={styles.inputGroup}>
                   <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                      <View style={[styles.pickerWrapper, {flex: 1}]}><Picker style={styles.picker} selectedValue={startTime} onValueChange={(itemValue) => setStartTime(itemValue)}>{timeOptions.map(t => <Picker.Item key={t} label={t} value={t} />)}</Picker></View>
+                      <View style={[styles.pickerWrapper, {flex: 1}]}><Picker style={styles.picker} selectedValue={startTime} onValueChange={setStartTime}>{timeOptions.map(t => <Picker.Item key={t} label={t} value={t} />)}</Picker></View>
                       <Text style={{marginHorizontal: 5, color: '#888'}}>-</Text>
-                      <View style={[styles.pickerWrapper, {flex: 1}]}><Picker style={styles.picker} selectedValue={endTime} onValueChange={(itemValue) => setEndTime(itemValue)}>{timeOptions.map(t => <Picker.Item key={t} label={t} value={t} />)}</Picker></View>
+                      <View style={[styles.pickerWrapper, {flex: 1}]}><Picker style={styles.picker} selectedValue={endTime} onValueChange={setEndTime}>{timeOptions.map(t => <Picker.Item key={t} label={t} value={t} />)}</Picker></View>
                   </View>
               </View>
           </View>
@@ -432,7 +337,7 @@ export default function Search() {
                             <Text style={styles.resultTitle}>{item.field_name}</Text>
                             <View style={styles.badgeRow}>
                                 <View style={styles.badge}><Text style={styles.badgeText}>{sport}</Text></View>
-                                <View style={styles.badge}><Text style={styles.badgeText}>{soccerFormat}</Text></View>
+                                <View style={styles.badge}><Text style={styles.badgeText}>{getActualFormat()}</Text></View>
                             </View>
                         </View>
                         <View style={styles.resultDistance}>
@@ -600,6 +505,8 @@ const styles = StyleSheet.create({
   resultDistance: { alignItems: 'center', backgroundColor: '#E8F0FE', padding: 10, borderRadius: 12 },
   distanceText: { fontSize: 12, fontWeight: 'bold', color: '#1A73E8', marginTop: 4 },
   avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#F1F3F4', justifyContent: 'center', alignItems: 'center' },
+  
+  // MODAL STYLES
   challengeBtn: { backgroundColor: '#E8F0FE', paddingHorizontal: 15, paddingVertical: 10, borderRadius: 20 },
   challengeTxt: { color: '#1A73E8', fontWeight: 'bold' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
@@ -612,6 +519,7 @@ const styles = StyleSheet.create({
   slotDetails: { fontSize: 14, color: '#666', marginTop: 4 },
   confirmBtn: { backgroundColor: '#1A73E8', padding: 15, borderRadius: 12, alignItems: 'center', marginTop: 15 },
   confirmTxt: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+
   bottomNav: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#fff', flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 15, paddingBottom: Platform.OS === 'ios' ? 30 : 15, borderTopWidth: 1, borderTopColor: '#EEE' },
   navItem: { alignItems: 'center', justifyContent: 'center' },
   navText: { fontSize: 11, fontWeight: '600', color: '#888', marginTop: 4 }

@@ -1,119 +1,72 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, SafeAreaView, Alert } from 'react-native';
+import { StyleSheet, Text, View, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, SafeAreaView } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { useRouter } from 'expo-router';
 import { createClient } from '@supabase/supabase-js';
 import { Ionicons } from '@expo/vector-icons';
+import { API_BASE_URL } from '../config';
 
 const supabase = createClient('https://lsquxrvufehselooyenj.supabase.co', 'sb_publishable_TANOMAeqEQwjo0PYtjbn_Q_WkdLbwyb');
-
-interface SportConfig {
-  sport_name: string;
-  formats: string[];
-}
 
 export default function AdminFields() {
   const router = useRouter();
   
-  const [facility, setFacility] = useState<any>(null);
-  const [fields, setFields] = useState<any[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [facility, setFacility] = useState(null);
+  const [fields, setFields] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   // Form States
-  const [showAddForm, setShowAddForm] = useState<boolean>(false);
-  const [editingFieldId, setEditingFieldId] = useState<number | null>(null);
-  const [fieldName, setFieldName] = useState<string>('');
-  const [sport, setSport] = useState<string>('');
-  const [soccerFormat, setSoccerFormat] = useState<string>('');
-  const [environment, setEnvironment] = useState<string>('Outdoor');
-  const [combinableNotes, setCombinableNotes] = useState<string>('');
-  const [externalIcalUrl, setExternalIcalUrl] = useState<string>('');
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [editingFieldId, setEditingFieldId] = useState(null);
+  const [fieldName, setFieldName] = useState('');
+  const [sport, setSport] = useState('Soccer');
+  const [soccerFormat, setSoccerFormat] = useState('7v7');
+  const [environment, setEnvironment] = useState('Outdoor');
+  const [combinableNotes, setCombinableNotes] = useState('');
+  const [externalIcalUrl, setExternalIcalUrl] = useState('');
 
-  // Dynamic Categories
-  const [sportsConfig, setSportsConfig] = useState<SportConfig[]>([]);
-  const [availableFormats, setAvailableFormats] = useState<string[]>([]);
+  useEffect(() => { loadData(); }, []);
 
-  useEffect(() => {
-    const loadConfigurationAndData = async () => {
-      setLoading(true);
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
 
-        // 1. Load dynamic sports configs from database
-        const { data: sysConfigs } = await supabase.from('sports_config').select('*').order('sport_name', { ascending: true });
-        
-        let loadedConfigs = sysConfigs || [];
-        if (loadedConfigs.length === 0) {
-          loadedConfigs = [
-            { sport_name: 'Soccer', formats: ['5v5', '7v7', '9v9', '11v11'] },
-            { sport_name: 'Basketball', formats: ['5v5'] },
-            { sport_name: 'Tennis', formats: ['1v1', '2v2', 'Other'] }
-          ];
-        }
-        setSportsConfig(loadedConfigs);
-
-        // Initialize form pickers
-        setSport(loadedConfigs[0].sport_name);
-        setAvailableFormats(loadedConfigs[0].formats);
-        setSoccerFormat(loadedConfigs[0].formats[0]);
-
-        // 2. Get the Facility First
-        const { data: myFacility } = await supabase.from('facilities').select('*').eq('admin_id', user.id).maybeSingle();
-        if (!myFacility) {
-            router.replace('/admin-setup');
-            return;
-        }
-        setFacility(myFacility);
-
-        // 3. Get all fields belonging to this Facility
-        const { data: myFields } = await supabase.from('fields').select('*').eq('facility_id', myFacility.id).order('created_at', { ascending: true });
-        setFields(myFields || []);
-        
-      } catch (err) { 
-        console.error(err); 
-      } finally { 
-        setLoading(false); 
+      // 1. Get the Facility First
+      const { data: myFacility } = await supabase.from('facilities').select('*').eq('admin_id', user.id).maybeSingle();
+      if (!myFacility) {
+          router.replace('/admin-setup');
+          return;
       }
-    };
+      setFacility(myFacility);
 
-    loadConfigurationAndData();
-  }, []);
-
-  const handleSportChange = (selectedSport: string) => {
-    setSport(selectedSport);
-    const selected = sportsConfig.find(item => item.sport_name === selectedSport);
-    if (selected) {
-      setAvailableFormats(selected.formats);
-      setSoccerFormat(selected.formats[0]);
-    }
+      // 2. Get all fields belonging to this Facility
+      const { data: myFields } = await supabase.from('fields').select('*').eq('facility_id', myFacility.id).order('created_at', { ascending: true });
+      setFields(myFields || []);
+      
+    } catch (err) { console.error(err); } finally { setLoading(false); }
   };
 
-  const openEditForm = (field: any) => {
-    setEditingFieldId(field.id); 
-    setFieldName(field.name); 
-    setSport(field.sport || '');
-    
-    const config = sportsConfig.find(item => item.sport_name === field.sport);
-    if (config) {
-      setAvailableFormats(config.formats);
-      setSoccerFormat(field.format || config.formats[0]);
-    } else {
-      setAvailableFormats(['Other']);
-      setSoccerFormat('Other');
-    }
+  const getActualFormat = () => {
+      if (sport === 'Basketball') return '5v5';
+      if (['Tennis', 'Hockey', 'Baseball'].includes(sport)) return 'Other';
+      return soccerFormat;
+  };
 
-    setEnvironment(field.environment || 'Outdoor'); 
-    setCombinableNotes(field.combinable_notes || ''); 
-    setExternalIcalUrl(field.external_ical_url || '');
+  const openEditForm = (field) => {
+    setEditingFieldId(field.id); setFieldName(field.name); setSport(field.sport || 'Soccer');
+    if (field.sport === 'Soccer') setSoccerFormat(field.format || '7v7');
+    setEnvironment(field.environment || 'Outdoor'); setCombinableNotes(field.combinable_notes || ''); setExternalIcalUrl(field.external_ical_url || '');
     setShowAddForm(true);
   };
 
   const handleSaveField = async () => {
     if (!fieldName) { alert("Please enter a field name."); return; }
     try {
+      const targetFormat = getActualFormat();
       const fieldDataObj = {
-        name: fieldName, sport, format: soccerFormat, environment,
+        name: fieldName, sport, format: targetFormat, environment,
         is_combinable: combinableNotes.length > 0, combinable_notes: combinableNotes, external_ical_url: externalIcalUrl
       };
 
@@ -124,57 +77,39 @@ export default function AdminFields() {
         await supabase.from('fields').insert([{ ...fieldDataObj, facility_id: facility.id }]);
         alert("Field added!");
       }
-      resetForm(); 
-      reloadFieldsList(); 
-    } catch (err: any) { 
-      alert("Error saving field: " + err.message); 
-    }
+      resetForm(); loadData(); 
+    } catch (err) { alert("Error saving field: " + err.message); }
   };
 
-  const reloadFieldsList = async () => {
-    if (!facility) return;
-    const { data: myFields } = await supabase.from('fields').select('*').eq('facility_id', facility.id).order('created_at', { ascending: true });
-    setFields(myFields || []);
-  };
-
-  const handleDeleteField = async (id: number) => {
-    const check = confirm("Delete this field? All schedules will be lost.");
-    if (!check) return;
+  const handleDeleteField = async (id) => {
+    if (!window.confirm("Delete this field? All schedules will be lost.")) return;
     try {
       await supabase.from('field_availabilities').delete().eq('field_id', id);
       await supabase.from('fields').delete().eq('id', id);
-      reloadFieldsList();
+      loadData();
     } catch (err) { alert("Error deleting field."); }
   };
 
-  const resetForm = () => { 
-    setShowAddForm(false); 
-    setEditingFieldId(null); 
-    setFieldName(''); 
-    setCombinableNotes(''); 
-    setExternalIcalUrl(''); 
-    if (sportsConfig.length > 0) {
-      setSport(sportsConfig[0].sport_name);
-      setAvailableFormats(sportsConfig[0].formats);
-      setSoccerFormat(sportsConfig[0].formats[0]);
-    }
-  };
+  const resetForm = () => { setShowAddForm(false); setEditingFieldId(null); setFieldName(''); setCombinableNotes(''); setExternalIcalUrl(''); };
 
   if (loading || !facility) return <ActivityIndicator size="large" color="#1A73E8" style={{marginTop: 50}} />;
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.headerRow}>
+            <View style={styles.headerRow}>
         <View>
           <Text style={styles.header}>{facility.name}</Text>
           <View style={{flexDirection: 'row', gap: 15, marginTop: 5}}>
               <TouchableOpacity onPress={() => router.push('/admin-setup')}><Text style={{color: '#1A73E8', fontWeight: 'bold'}}>⚙️ Complex Info</Text></TouchableOpacity>
+              
+              {/* NEW BUTTONS */}
               <TouchableOpacity onPress={() => router.push('/admin-reports')}><Text style={{color: '#1A73E8', fontWeight: 'bold'}}>📊 Reports</Text></TouchableOpacity>
               <TouchableOpacity onPress={() => router.push('/admin-profile')}><Text style={{color: '#1A73E8', fontWeight: 'bold'}}>👤 Profile</Text></TouchableOpacity>
           </View>
         </View>
         <TouchableOpacity style={styles.logoutBtn} onPress={() => router.replace('/')}><Text style={{color:'#fff', fontWeight: 'bold'}}>Logout</Text></TouchableOpacity>
       </View>
+
 
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.card}>
@@ -188,31 +123,15 @@ export default function AdminFields() {
                   <TextInput style={styles.input} value={fieldName} onChangeText={setFieldName} placeholder="e.g. Field 1" />
 
                   <View style={{flexDirection: 'row', gap: 10}}>
-                      <View style={{flex: 1}}>
-                        <Text style={styles.label}>Sport</Text>
-                        <View style={styles.pickerWrapper}>
-                          <Picker selectedValue={sport} onValueChange={(v) => handleSportChange(v)}>
-                            {sportsConfig.map(s => <Picker.Item key={s.sport_name} label={s.sport_name} value={s.sport_name} />)}
-                          </Picker>
-                        </View>
-                      </View>
-                      <View style={{flex: 1}}>
-                        <Text style={styles.label}>Environment</Text>
-                        <View style={styles.pickerWrapper}>
-                          <Picker selectedValue={environment} onValueChange={(v) => setEnvironment(v)}>
-                            <Picker.Item label="Outdoor" value="Outdoor" />
-                            <Picker.Item label="Indoor" value="Indoor" />
-                          </Picker>
-                        </View>
-                      </View>
+                      <View style={{flex: 1}}><Text style={styles.label}>Sport</Text><View style={styles.pickerWrapper}><Picker selectedValue={sport} onValueChange={setSport}><Picker.Item label="Soccer" value="Soccer" /><Picker.Item label="Basketball" value="Basketball" /><Picker.Item label="Tennis" value="Tennis" /><Picker.Item label="Hockey" value="Hockey" /><Picker.Item label="Baseball" value="Baseball" /></Picker></View></View>
+                      <View style={{flex: 1}}><Text style={styles.label}>Environment</Text><View style={styles.pickerWrapper}><Picker selectedValue={environment} onValueChange={setEnvironment}><Picker.Item label="Outdoor" value="Outdoor" /><Picker.Item label="Indoor" value="Indoor" /></Picker></View></View>
                   </View>
 
-                  <Text style={styles.label}>Category Format</Text>
-                  <View style={styles.pickerWrapper}>
-                    <Picker selectedValue={soccerFormat} onValueChange={(v) => setSoccerFormat(v)}>
-                      {availableFormats.map(fmt => <Picker.Item key={fmt} label={fmt} value={fmt} />)}
-                    </Picker>
-                  </View>
+                  {sport === 'Soccer' ? (
+                      <View><Text style={styles.label}>Format</Text><View style={styles.pickerWrapper}><Picker selectedValue={soccerFormat} onValueChange={setSoccerFormat}><Picker.Item label="5v5" value="5v5" /><Picker.Item label="7v7" value="7v7" /><Picker.Item label="9v9" value="9v9" /><Picker.Item label="11v11" value="11v11" /></Picker></View></View>
+                  ) : (
+                      <View><Text style={styles.label}>Format</Text><View style={styles.input}><Text style={{color: '#666', fontWeight: 'bold'}}>{getActualFormat()}</Text></View></View>
+                  )}
 
                   <Text style={styles.label}>Combinable Notes</Text>
                   <TextInput style={styles.input} value={combinableNotes} onChangeText={setCombinableNotes} />
@@ -264,6 +183,7 @@ const styles = StyleSheet.create({
   label: { fontSize: 13, fontWeight: '700', color: '#555', marginBottom: 5, marginTop: 10 },
   input: { backgroundColor: '#F1F3F4', padding: 12, borderRadius: 10, height: 45, justifyContent: 'center' },
   pickerWrapper: { backgroundColor: '#F1F3F4', borderRadius: 10, height: 45, justifyContent: 'center' },
+  picker: { borderWidth: 0, backgroundColor: 'transparent' },
   btn: { padding: 12, borderRadius: 8, alignItems: 'center' },
   btnText: { color: '#fff', fontWeight: 'bold' },
   fieldCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: 20, borderRadius: 12, marginBottom: 10, elevation: 2, borderLeftWidth: 5, borderLeftColor: '#1A73E8' },

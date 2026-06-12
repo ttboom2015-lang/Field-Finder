@@ -1,186 +1,133 @@
-import { Ionicons } from '@expo/vector-icons';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, Text, View, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, SafeAreaView } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { supabase } from '../supabaseClient';
-//const supabase = createClient('https://lsquxrvufehselooyenj.supabase.co', 'sb_publishable_TANOMAeqEQwjo0PYtjbn_Q_WkdLbwyb');
+import { createClient } from '@supabase/supabase-js';
+import { Ionicons } from '@expo/vector-icons';
+import { API_BASE_URL } from '../config';
+
+const supabase = createClient(
+  'https://lsquxrvufehselooyenj.supabase.co',
+  'sb_publishable_TANOMAeqEQwjo0PYtjbn_Q_WkdLbwyb'
+);
 
 export default function EditTeam() {
   const router = useRouter();
-  const [teamId, setTeamId] = useState<string | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [updating, setUpdating] = useState<boolean>(false);
-
-  // Dynamic configuration lists
-  const [sportsList, setSportsList] = useState<string[]>([]);
-  const [ageGroupsList, setAgeGroupsList] = useState<string[]>([]);
+  const [teamId, setTeamId] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   // Core Team Info
-  const [teamName, setTeamName] = useState<string>('');
-  const [sport, setSport] = useState<string>('Soccer'); 
-  const [ageGroup, setAgeGroup] = useState<string>('U12');
-  const [division, setDivision] = useState<string>('Division 1');
-  const [gender, setGender] = useState<string>('Boys');
-  const [address, setAddress] = useState<string>('');
-  const [postalCode, setPostalCode] = useState<string>('');
+  const [teamName, setTeamName] = useState('');
+  const [sport, setSport] = useState('Soccer'); 
+  const [ageGroup, setAgeGroup] = useState('U12');
+  const [division, setDivision] = useState('Division 1');
+  const [gender, setGender] = useState('Boys');
+  const [address, setAddress] = useState('');
+  const [postalCode, setPostalCode] = useState('');
 
   // Staff Info
-  const [managerName, setManagerName] = useState<string>('');
-  const [managerEmail, setManagerEmail] = useState<string>(''); 
-  const [managerPhone, setManagerPhone] = useState<string>('');
+  const [managerName, setManagerName] = useState('');
+  const [managerEmail, setManagerEmail] = useState(''); 
+  const [managerPhone, setManagerPhone] = useState('');
   
-  const [hcName, setHcName] = useState<string>(''); 
-  const [hcEmail, setHcEmail] = useState<string>(''); 
-  const [hcPhone, setHcPhone] = useState<string>('');
-  const [ac1Name, setAc1Name] = useState<string>(''); 
-  const [ac1Email, setAc1Email] = useState<string>(''); 
-  const [ac1Phone, setAc1Phone] = useState<string>('');
-  const [ac2Name, setAc2Name] = useState<string>(''); 
-  const [ac2Email, setAc2Email] = useState<string>(''); 
-  const [ac2Phone, setAc2Phone] = useState<string>('');
+  const [hcName, setHcName] = useState(''); const [hcEmail, setHcEmail] = useState(''); const [hcPhone, setHcPhone] = useState('');
+  const [ac1Name, setAc1Name] = useState(''); const [ac1Email, setAc1Email] = useState(''); const [ac1Phone, setAc1Phone] = useState('');
+  const [ac2Name, setAc2Name] = useState(''); const [ac2Email, setAc2Email] = useState(''); const [ac2Phone, setAc2Phone] = useState('');
+
+  const ageGroups = Array.from({ length: 15 }, (_, i) => `U${i + 7}`);
 
   useEffect(() => {
-    let isMounted = true;
+    let isMounted = true; // Prevents memory leaks if the user navigates away fast
 
-    const loadMyTeamAndSports = async () => {
+    const loadMyTeam = async () => {
       try {
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         
         if (authError || !user) { 
-            Alert.alert("Error", "Authentication error. Please log in again.");
+            alert("Authentication error. Please log in again.");
             router.replace('/'); 
             return; 
         }
         
-        if (isMounted) setManagerEmail(user.email || ''); 
+        if (isMounted) setManagerEmail(user.email); 
 
-        // 1. Fetch Dynamic Sports Categories directly from Supabase sports_config
-        const { data: sysConfigs } = await supabase
-          .from('sports_config')
-          .select('sport_name')
-          .order('sport_name', { ascending: true });
+        // CRITICAL: Replace localhost with your IP if you are testing on a mobile device!
+        const response = await fetch(`${API_BASE_URL}/api/my-team?managerId=${user.id}`);
         
-        if (isMounted) {
-          if (sysConfigs && sysConfigs.length > 0) {
-            setSportsList(sysConfigs.map(item => item.sport_name));
-          } else {
-            setSportsList(['Soccer', 'Basketball', 'Tennis', 'Hockey', 'Baseball']);
-          }
+        if (!response.ok) {
+            throw new Error(`Server returned ${response.status}`);
         }
 
-        // 2. Fetch Dynamic Age Groups directly from age_groups_config
-        const { data: ageData } = await supabase
-          .from('age_groups_config')
-          .select('name')
-          .order('name', { ascending: true });
-
-        if (isMounted) {
-          if (ageData && ageData.length > 0) {
-            setAgeGroupsList(ageData.map(item => item.name));
-          } else {
-            setAgeGroupsList(Array.from({ length: 15 }, (_, i) => `U${i + 7}`));
-          }
-        }
-
-        // 3. Fetch Active Team configurations DIRECTLY from Supabase to prevent localhost routing bugs
-        const { data: teamData, error: teamError } = await supabase
-          .from('teams')
-          .select('*')
-          .eq('manager_id', user.id)
-          .limit(1)
-          .maybeSingle();
-
-        if (teamError) throw teamError;
+        const data = await response.json();
         
-        if (teamData && isMounted) {
-            setTeamId(teamData.id); 
-            setTeamName(teamData.team_name || ''); 
-            setSport(teamData.sport || 'Soccer'); 
-            setAgeGroup(teamData.age_group || 'U12'); 
-            setDivision(teamData.division || 'Division 1'); 
-            setGender(teamData.gender || 'Boys');
-            setAddress(teamData.address || ''); 
-            setPostalCode(teamData.postal_code || '');
-            setManagerName(teamData.manager_name || ''); 
-            setManagerPhone(teamData.manager_phone || '');
-            setHcName(teamData.hc_name || ''); 
-            setHcEmail(teamData.hc_email || ''); 
-            setHcPhone(teamData.hc_phone || '');
-            setAc1Name(teamData.ac1_name || ''); 
-            setAc1Email(teamData.ac1_email || ''); 
-            setAc1Phone(teamData.ac1_phone || '');
-            setAc2Name(teamData.ac2_name || ''); 
-            setAc2Email(teamData.ac2_email || ''); 
-            setAc2Phone(teamData.ac2_phone || '');
-        } else if (isMounted) {
-            Alert.alert("Setup Profile", "No team profile found. Redirecting to setup.");
+        if (data && data.id && isMounted) {
+            setTeamId(data.id); 
+            setTeamName(data.team_name || ''); 
+            setSport(data.sport || 'Soccer'); 
+            setAgeGroup(data.age_group || 'U12'); 
+            setDivision(data.division || 'Division 1'); 
+            setGender(data.gender || 'Boys');
+            setAddress(data.address || ''); 
+            setPostalCode(data.postal_code || '');
+            setManagerName(data.manager_name || ''); 
+            setManagerPhone(data.manager_phone || '');
+            setHcName(data.hc_name || ''); setHcEmail(data.hc_email || ''); setHcPhone(data.hc_phone || '');
+            setAc1Name(data.ac1_name || ''); setAc1Email(data.ac1_email || ''); setAc1Phone(data.ac1_phone || '');
+            setAc2Name(data.ac2_name || ''); setAc2Email(data.ac2_email || ''); setAc2Phone(data.ac2_phone || '');
+        } else {
+            // If they somehow got here without a team, send them to create it
+            alert("No team profile found. Redirecting to setup.");
             router.replace('/create-team');
         }
       } catch (error) { 
         console.error("Load Team Error:", error);
-        Alert.alert("Error", "Failed to load your team data."); 
+        alert("Failed to load your team data. Are you sure your backend server is running?"); 
       } finally { 
         if (isMounted) setLoading(false); 
       }
     };
 
-    loadMyTeamAndSports();
+    loadMyTeam();
 
     return () => { isMounted = false; };
   }, []);
 
   const handleUpdateTeam = async () => {
     if (!teamName || !address || !postalCode || !managerName) { 
-        Alert.alert("Validation Error", "Please fill in Team Name, Manager Name, Address, and Postal Code!"); 
+        alert("Please fill in Team Name, Manager Name, Address, and Postal Code!"); 
         return; 
     }
     
-    setUpdating(true);
+    setLoading(true);
+    
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user || !teamId) return;
+      const payload = { 
+          teamId, teamName, sport, ageGroup, division, address, postalCode, gender, manager_id: user.id,
+          managerName, managerPhone, hcName, hcEmail, hcPhone, ac1Name, ac1Email, ac1Phone, ac2Name, ac2Email, ac2Phone 
+      };
 
-      // Update DIRECTLY via Supabase client to perfectly match database snake_case naming constraints
-      const { error: updateError } = await supabase
-        .from('teams')
-        .update({
-          team_name: teamName,
-          sport: sport,
-          age_group: ageGroup,
-          division: division,
-          gender: gender,
-          address: address,
-          postal_code: postalCode,
-          manager_name: managerName,
-          manager_phone: managerPhone,
-          hc_name: hcName,
-          hc_email: hcEmail,
-          hc_phone: hcPhone,
-          ac1_name: ac1Name,
-          ac1_email: ac1Email,
-          ac1_phone: ac1Phone,
-          ac2_name: ac2Name,
-          ac2_email: ac2Email,
-          ac2_phone: ac2Phone
-        })
-        .eq('id', teamId);
+      const response = await fetch(`${API_BASE_URL}/api/teams`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-      if (updateError) throw updateError;
-
-      // Also dynamically update the full_name in the profiles table to match
-      await supabase.from('profiles').update({ full_name: managerName }).eq('id', user.id);
-
-      Alert.alert("Success", "Profile updated successfully!"); 
-      router.replace('/search'); 
-    } catch (error: any) { 
-        console.error("Update error:", error);
-        Alert.alert("Update Failed", error.message || "Could not connect to database."); 
+      if (response.ok) { 
+          alert(`Success! Profile saved.`); 
+          router.replace('/search'); 
+      } else { 
+          const res = await response.json(); 
+          alert("Error: " + res.error); 
+      }
+    } catch (error) { 
+        alert("Network Error: Could not connect to backend server."); 
     } finally {
-        setUpdating(false);
+        setLoading(false);
     }
   };
 
+  // --- SAFE LOADING STATE ---
   if (loading) {
       return (
         <SafeAreaView style={[styles.safeArea, {justifyContent: 'center', alignItems: 'center'}]}>
@@ -212,15 +159,19 @@ export default function EditTeam() {
               <View style={{flex: 1}}>
                   <Text style={styles.label}>Sport</Text>
                   <View style={styles.pickerWrapper}>
-                      <Picker selectedValue={sport} onValueChange={(itemValue) => setSport(itemValue)}>
-                          {sportsList.map(item => <Picker.Item key={item} label={item} value={item} />)}
+                      <Picker selectedValue={sport} onValueChange={setSport}>
+                          <Picker.Item label="Soccer" value="Soccer" />
+                          <Picker.Item label="Basketball" value="Basketball" />
+                          <Picker.Item label="Tennis" value="Tennis" />
+                          <Picker.Item label="Hockey" value="Hockey" />
+                          <Picker.Item label="Baseball" value="Baseball" />
                       </Picker>
                   </View>
               </View>
               <View style={{flex: 1}}>
                   <Text style={styles.label}>Gender</Text>
                   <View style={styles.pickerWrapper}>
-                      <Picker selectedValue={gender} onValueChange={(v) => setGender(v)}>
+                      <Picker selectedValue={gender} onValueChange={setGender}>
                           <Picker.Item label="Boys" value="Boys" />
                           <Picker.Item label="Girls" value="Girls" />
                       </Picker>
@@ -230,17 +181,17 @@ export default function EditTeam() {
 
           <View style={styles.row}>
               <View style={{flex: 1}}>
-                  <Text style={styles.label}>Age Group / Category</Text>
+                  <Text style={styles.label}>Age Group</Text>
                   <View style={styles.pickerWrapper}>
-                      <Picker selectedValue={ageGroup} onValueChange={(v) => setAgeGroup(v)}>
-                          {ageGroupsList.map(age => <Picker.Item key={age} label={age} value={age} />)}
+                      <Picker selectedValue={ageGroup} onValueChange={setAgeGroup}>
+                          {ageGroups.map(age => <Picker.Item key={age} label={age} value={age} />)}
                       </Picker>
                   </View>
               </View>
               <View style={{flex: 1}}>
                   <Text style={styles.label}>Division</Text>
                   <View style={styles.pickerWrapper}>
-                      <Picker selectedValue={division} onValueChange={(v) => setDivision(v)}>
+                      <Picker selectedValue={division} onValueChange={setDivision}>
                           <Picker.Item label="Div 1" value="Division 1" />
                           <Picker.Item label="Div 2" value="Division 2" />
                           <Picker.Item label="Div 3" value="Division 3" />
@@ -296,8 +247,8 @@ export default function EditTeam() {
           </View>
         </View>
 
-        <TouchableOpacity style={styles.saveBtn} onPress={handleUpdateTeam} disabled={updating}>
-          {updating ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnTxt}>Update Profile</Text>}
+        <TouchableOpacity style={styles.saveBtn} onPress={handleUpdateTeam}>
+          <Text style={styles.saveBtnTxt}>Update Profile</Text>
         </TouchableOpacity>
 
       </ScrollView>

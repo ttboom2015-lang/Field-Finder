@@ -4,45 +4,41 @@ import { Picker } from '@react-native-picker/picker';
 import { useRouter } from 'expo-router';
 import { createClient } from '@supabase/supabase-js';
 import { Ionicons } from '@expo/vector-icons';
+import { API_BASE_URL } from '../config'; 
 
 const supabase = createClient('https://lsquxrvufehselooyenj.supabase.co', 'sb_publishable_TANOMAeqEQwjo0PYtjbn_Q_WkdLbwyb');
 
 // Helper to get local date string YYYY-MM-DD
-const getLocalYYYYMMDD = (date: Date): string => {
+const getLocalYYYYMMDD = (date) => {
   const y = date.getFullYear(); 
   const m = String(date.getMonth() + 1).padStart(2, '0'); 
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 };
 
-interface Slot {
-  db_id: string | null;
-  start_time: Date;
-  end_time: Date;
-  status: string;
-}
-
 export default function TeamAvailability() {
   const router = useRouter();
-  const [teamId, setTeamId] = useState<string | null>(null);
-  const [teamName, setTeamName] = useState<string>('');
-  const [slots, setSlots] = useState<Slot[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [teamId, setTeamId] = useState(null);
+  const [teamName, setTeamName] = useState('');
+  const [slots, setSlots] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   // Date States
-  const [currentDateStr, setCurrentDateStr] = useState<string>(getLocalYYYYMMDD(new Date()));
-  const [bulkStartStr, setBulkStartStr] = useState<string>(getLocalYYYYMMDD(new Date()));
-  const [bulkEndStr, setBulkEndStr] = useState<string>(getLocalYYYYMMDD(new Date()));
-  const [bulkStatus, setBulkStatus] = useState<string>('available');
-  const [bulkLoading, setBulkLoading] = useState<boolean>(false);
+  const [currentDateStr, setCurrentDateStr] = useState(getLocalYYYYMMDD(new Date()));
+  const [bulkStartStr, setBulkStartStr] = useState(getLocalYYYYMMDD(new Date()));
+  const [bulkEndStr, setBulkEndStr] = useState(getLocalYYYYMMDD(new Date()));
+  const [bulkStatus, setBulkStatus] = useState('available');
+  const [bulkLoading, setBulkLoading] = useState(false);
 
-  // --- ROBUST SLOT GENERATION ---
-  const generateDailySlots = (dateStr: string): Array<{ start: Date; end: Date }> => {
-    const dailySlots: Array<{ start: Date; end: Date }> = [];
+  // --- CORE LOGIC: GENERATE 36 SLOTS ---
+// --- ROBUST SLOT GENERATION ---
+  const generateDailySlots = (dateStr) => {
+    const dailySlots = [];
     const [y, m, d] = dateStr.split('-').map(Number);
     
-    // Explicitly iterate through 6:00 to 23:30 slots to guarantee coverage
+    // Explicitly iterate through 0 to 23 hours to guarantee coverage
     for (let hour = 6; hour <= 23; hour++) {
+      // Ensure we don't roll over to hour 24
       const nextHour = hour + 1;
       
       const s1 = new Date(y, m - 1, d, hour, 0, 0);
@@ -58,18 +54,14 @@ export default function TeamAvailability() {
     return dailySlots;
   };
 
+
   useEffect(() => {
     const init = async () => {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
             const { data } = await supabase.from('teams').select('id, team_name').eq('manager_id', user.id).maybeSingle();
-            if (data) { 
-              setTeamId(data.id); 
-              setTeamName(data.team_name); 
-            } else { 
-              alert("Please create a team profile first."); 
-              router.replace('/create-team'); 
-            }
+            if (data) { setTeamId(data.id); setTeamName(data.team_name); }
+            else { alert("Please create a team profile first."); router.replace('/create-team'); }
         }
     };
     init();
@@ -80,26 +72,16 @@ export default function TeamAvailability() {
   const loadSlots = async () => {
     setLoading(true);
     try {
-      // Precise boundaries for the selected day in local time to avoid timezone bleeding
+      // Precise boundaries for the selected day
       const startOfDay = new Date(`${currentDateStr}T00:00:00`).toISOString();
-      const endOfDay = new Date(`${currentDateStr}T23:59:59.999`).toISOString();
+      const endOfDay = new Date(`${currentDateStr}T23:59:59`).toISOString();
 
-      // Query database directly to resolve timezone-shifting issues
-      const { data: existingAvails, error } = await supabase
-        .from('team_availabilities')
-        .select('*')
-        .eq('team_id', teamId)
-        .gte('start_time', startOfDay)
-        .lte('start_time', endOfDay);
-
-      if (error) throw error;
-
-      const availsArray = Array.isArray(existingAvails) ? existingAvails : [];
+      const response = await fetch(`${API_BASE_URL}/api/team-schedule?teamId=${teamId}&date=${currentDateStr}`);
+      const existingAvails = await response.json();
 
       const generated = generateDailySlots(currentDateStr);
       const mergedSlots = generated.map(genSlot => {
-        // Compare times using getTime() to handle milliseconds consistently
-        const dbSlot = availsArray.find(db => new Date(db.start_time).getTime() === genSlot.start.getTime());
+        const dbSlot = existingAvails?.find(db => new Date(db.start_time).getTime() === genSlot.start.getTime());
         return {
           db_id: dbSlot?.id || null,
           start_time: genSlot.start,
@@ -108,14 +90,11 @@ export default function TeamAvailability() {
         };
       });
       setSlots(mergedSlots);
-    } catch (err: any) { 
-      console.error(err); 
-      alert("Error loading schedule: " + err.message);
-    } finally { 
-      setLoading(false); 
-    }
+    } catch (err) { console.error(err); } finally { setLoading(false); }
   };
 
+  // --- BULK UPDATE FIX ---
+  // --- BULK UPDATE LOGIC - Fix 20h and above not updating issue---
   const applyBulkUpdate = async () => {
     if (!teamId) return;
     setBulkLoading(true);
@@ -123,23 +102,16 @@ export default function TeamAvailability() {
       const sDate = new Date(`${bulkStartStr}T00:00:00`);
       const eDate = new Date(`${bulkEndStr}T23:59:59.999`);
 
-      // 1. Get existing slots for the range directly from Supabase
-      const { data: existing, error: selectError } = await supabase
-        .from('team_availabilities')
-        .select('id, start_time')
-        .eq('team_id', teamId)
-        .gte('start_time', sDate.toISOString())
-        .lte('start_time', eDate.toISOString());
+      // 1. Get existing slots
+      // Use Render API URL for production
+      const { data: existing } = await supabase.from('team_availabilities').select('id, start_time')
+        .eq('team_id', teamId).gte('start_time', sDate.toISOString()).lte('start_time', eDate.toISOString());
 
-      if (selectError) throw selectError;
+      const existingMap = {};
+      existing?.forEach(e => { existingMap[new Date(e.start_time).toISOString()] = e.id; });
 
-      const existingMap: Record<number, string> = {};
-      existing?.forEach(e => { 
-        existingMap[new Date(e.start_time).getTime()] = e.id; 
-      });
-
-      const toInsert: any[] = [];
-      const toUpdateIds: string[] = [];
+      const toInsert = [];
+      const toUpdateIds = [];
 
       let curr = new Date(sDate);
       while (curr <= eDate) {
@@ -147,45 +119,36 @@ export default function TeamAvailability() {
         const dailySlots = generateDailySlots(dStr);
         
         dailySlots.forEach(slot => {
-          const timeMs = slot.start.getTime();
-          if (existingMap[timeMs]) {
-            toUpdateIds.push(existingMap[timeMs]); 
+          const isoStart = slot.start.toISOString();
+          if (existingMap[isoStart]) {
+            toUpdateIds.push(existingMap[isoStart]); 
           } else {
-            toInsert.push({ 
-              team_id: teamId, 
-              start_time: slot.start.toISOString(), 
-              end_time: slot.end.toISOString(), 
-              status: bulkStatus 
-            }); 
+            toInsert.push({ team_id: teamId, start_time: isoStart, end_time: slot.end.toISOString(), status: bulkStatus }); 
           }
         });
         curr.setDate(curr.getDate() + 1); // Move to next day
       }
 
-      // 2. Perform database updates directly via Supabase client to avoid API middleware limits
-      if (toInsert.length > 0) {
-        const { error: insertError } = await supabase.from('team_availabilities').insert(toInsert);
-        if (insertError) throw insertError;
-      }
+      const response = await fetch(`${API_BASE_URL}/api/team-schedule/update`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ toInsert, toUpdateIds, status: bulkStatus })
+      });
 
-      if (toUpdateIds.length > 0) {
-        const { error: updateError } = await supabase
-          .from('team_availabilities')
-          .update({ status: bulkStatus })
-          .in('id', toUpdateIds);
-        if (updateError) throw updateError;
+      if (response.ok) {
+          alert(`Bulk update successful!`);
+          loadSlots(); // Refresh UI
+      } else {
+          alert("Failed to apply bulk update.");
       }
-
-      alert("Bulk update successful!");
-      loadSlots(); // Refresh UI
-    } catch (err: any) {
+    } catch (err) {
       alert("Bulk Update Error: " + err.message);
     } finally {
       setBulkLoading(false);
     }
   };
 
-  const toggleSlotStatus = async (index: number) => {
+  const toggleSlotStatus = async (index) => {
     const slot = slots[index];
     let newStatus = 'available';
     if (slot.status === 'available') newStatus = 'booked';
@@ -195,35 +158,15 @@ export default function TeamAvailability() {
     updatedSlots[index].status = newStatus;
     setSlots(updatedSlots);
 
-    try {
-      if (slot.db_id) {
-        const { error } = await supabase
-          .from('team_availabilities')
-          .update({ status: newStatus })
-          .eq('id', slot.db_id);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase
-          .from('team_availabilities')
-          .insert([{ 
-            team_id: teamId, 
-            start_time: slot.start_time.toISOString(), 
-            end_time: slot.end_time.toISOString(), 
-            status: newStatus 
-          }])
-          .select('id')
-          .single();
-        
-        if (error) throw error;
-        if (data) {
-          updatedSlots[index].db_id = data.id;
-          setSlots(updatedSlots);
-        }
-      }
-    } catch (err: any) {
-      alert("Error updating status: " + err.message);
-      loadSlots(); // Revert UI to match DB on error
-    }
+    const payload = slot.db_id 
+        ? { toUpdateIds: [slot.db_id], status: newStatus }
+        : { toInsert: [{ team_id: teamId, start_time: slot.start_time.toISOString(), end_time: slot.end_time.toISOString(), status: newStatus }] };
+
+    await fetch(`${API_BASE_URL}/api/team-schedule/update`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    });
+    
+    if (!slot.db_id) loadSlots(); // Refresh to get the ID for next click
   };
 
   return (
@@ -242,7 +185,7 @@ export default function TeamAvailability() {
           <Text style={styles.toolHeader}>📅 Jump to Date</Text>
           {Platform.OS === 'web' && createElement('input', { 
               type: 'date', value: currentDateStr, 
-              onChange: (e: any) => setCurrentDateStr(e.target.value), 
+              onChange: (e) => setCurrentDateStr(e.target.value), 
               style: styles.webDate 
           })}
         </View>
@@ -256,16 +199,16 @@ export default function TeamAvailability() {
             <View style={styles.bulkRow}>
               <View style={{flex: 1, marginRight: 8}}>
                   <Text style={styles.smallLabel}>From:</Text>
-                  {createElement('input', { type: 'date', value: bulkStartStr, onChange: (e: any) => setBulkStartStr(e.target.value), style: styles.webDate })}
+                  {createElement('input', { type: 'date', value: bulkStartStr, onChange: (e) => setBulkStartStr(e.target.value), style: styles.webDate })}
               </View>
               <View style={{flex: 1, marginRight: 8}}>
                   <Text style={styles.smallLabel}>To:</Text>
-                  {createElement('input', { type: 'date', value: bulkEndStr, onChange: (e: any) => setBulkEndStr(e.target.value), style: styles.webDate })}
+                  {createElement('input', { type: 'date', value: bulkEndStr, onChange: (e) => setBulkEndStr(e.target.value), style: styles.webDate })}
               </View>
               <View style={{flex: 1.2, marginRight: 8}}>
                   <Text style={styles.smallLabel}>Status:</Text>
                   <View style={styles.pickerWrapper}>
-                    <Picker selectedValue={bulkStatus} onValueChange={(v) => setBulkStatus(v)}>
+                    <Picker selectedValue={bulkStatus} onValueChange={setBulkStatus}>
                         <Picker.Item label="Available" value="available" />
                         <Picker.Item label="Unavailable" value="unavailable" />
                         <Picker.Item label="Busy / Booked" value="booked" />

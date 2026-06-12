@@ -1,20 +1,22 @@
-import { Ionicons } from '@expo/vector-icons';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, Text, View, FlatList, TouchableOpacity, ActivityIndicator, SafeAreaView, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, SafeAreaView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { createClient } from '@supabase/supabase-js';
+import { Ionicons } from '@expo/vector-icons';
 import { API_BASE_URL } from '../config';
-import { supabase } from '../supabaseClient';
-//const supabase = createClient('https://lsquxrvufehselooyenj.supabase.co', 'sb_publishable_TANOMAeqEQwjo0PYtjbn_Q_WkdLbwyb');
+
+
+const supabase = createClient('https://lsquxrvufehselooyenj.supabase.co', 'sb_publishable_TANOMAeqEQwjo0PYtjbn_Q_WkdLbwyb');
 
 export default function PendingInvites() {
   const router = useRouter();
-  const [invites, setInvites] = useState<any[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [invites, setInvites] = useState([]);
+  const [loading, setLoading] = useState(true);
   
   // State for responding
-  const [activeMatchId, setActiveMatchId] = useState<number | null>(null);
-  const [responseNotes, setResponseNotes] = useState<string>('');
-  const [processing, setProcessing] = useState<boolean>(false);
+  const [activeMatchId, setActiveMatchId] = useState(null);
+  const [responseNotes, setResponseNotes] = useState('');
+  const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
     const loadInvites = async () => {
@@ -25,29 +27,24 @@ export default function PendingInvites() {
         if (!teamData) return;
 
         const response = await fetch(`${API_BASE_URL}/api/pending-invites?teamId=${teamData.id}`);
+
         const data = await response.json();
         setInvites(data || []);
-      } catch (err) { 
-        console.error(err); 
-      } finally { 
-        setLoading(false); 
-      }
+      } catch (err) { console.error(err); } finally { setLoading(false); }
     };
     loadInvites();
   }, []);
 
-  const handleResponse = async (status: 'confirmed' | 'declined') => {
-    if (activeMatchId === null) return;
+  const handleResponse = async (status) => {
     setProcessing(true);
     try {
       const response = await fetch(`${API_BASE_URL}/api/respond-invite`, {
-        method: 'POST',
+
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ matchId: activeMatchId, responseStatus: status, responseNotes })
       });
-      
       if (response.ok) {
-          Alert.alert("Success", `Match ${status}!`);
+          alert(`Match ${status}!`);
           setActiveMatchId(null);
           setResponseNotes('');
           
@@ -57,17 +54,11 @@ export default function PendingInvites() {
           
           // If no more invites, send them to dashboard
           if (remaining.length === 0) router.replace('/search');
-      } else {
-          Alert.alert("Error", "Could not submit your response.");
       }
-    } catch (err) { 
-      Alert.alert("Network Error", "Could not reach server."); 
-    } finally { 
-      setProcessing(false); 
-    }
+    } catch (err) { alert("Network Error"); } finally { setProcessing(false); }
   };
 
-  if (loading) return <ActivityIndicator size="large" color="#1A73E8" style={{ marginTop: 50 }} />;
+  if (loading) return <ActivityIndicator size="large" color="#1A73E8" style={{marginTop: 50}} />;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -76,7 +67,7 @@ export default function PendingInvites() {
             <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
         <Text style={styles.title}>Pending Invites ({invites.length})</Text>
-        <View style={{ width: 40 }} /> 
+        <View style={{width: 40}} /> 
       </View>
 
       {invites.length === 0 ? (
@@ -84,12 +75,12 @@ export default function PendingInvites() {
               <Ionicons name="mail-open-outline" size={60} color="#ccc" />
               <Text style={styles.emptyText}>You have no pending match invitations.</Text>
               <TouchableOpacity style={styles.btn} onPress={() => router.replace('/search')}>
-                  <Text style={{ color: '#fff', fontWeight: 'bold' }}>Go to Dashboard</Text>
+                  <Text style={{color: '#fff', fontWeight: 'bold'}}>Go to Dashboard</Text>
               </TouchableOpacity>
           </View>
       ) : (
           <FlatList
-            contentContainerStyle={{ padding: 20 }}
+            contentContainerStyle={{padding: 20}}
             data={invites}
             keyExtractor={i => i.id.toString()}
             renderItem={({ item }) => {
@@ -98,29 +89,29 @@ export default function PendingInvites() {
 
                 return (
                     <View style={styles.card}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 15 }}>
-                            <View style={styles.avatar}><Ionicons name="shield" size={24} color="#F59E0B" /></View>
-                            <View style={{ marginLeft: 15, flex: 1 }}>
+                        <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 15}}>
+                            <View style={styles.avatar}><Ionicons name="shield" size={24} color="#F59E0B"/></View>
+                            <View style={{marginLeft: 15, flex: 1}}>
                                 <Text style={styles.teamName}>{item.team_a.team_name}</Text>
-                                <Text style={{ color: '#666' }}>Manager: {item.team_a.manager_name}</Text>
+                                <Text style={{color: '#666'}}>Manager: {item.team_a.manager_name}</Text>
                             </View>
                         </View>
 
                         <View style={styles.detailsBox}>
                             <Text style={styles.detailTxt}>📍 {item.field_availabilities.fields.name}</Text>
-                            <Text style={styles.detailTxt}>📅 {d.toLocaleDateString('en-CA', { weekday: 'short', month: 'short', day: 'numeric' })} @ {d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                            <Text style={styles.detailTxt}>📅 {d.toLocaleDateString('en-CA', {weekday: 'short', month: 'short', day: 'numeric'})} @ {d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</Text>
                             <Text style={styles.detailTxt}>⚙️ {item.field_availabilities.fields.sport} | {item.field_availabilities.fields.format}</Text>
                         </View>
 
                         {item.invite_notes && (
                             <View style={styles.notesBox}>
-                                <Text style={{ fontWeight: 'bold', fontSize: 12, color: '#555' }}>Note from opponent:</Text>
-                                <Text style={{ fontStyle: 'italic', marginTop: 4 }}>{item.invite_notes}</Text>
+                                <Text style={{fontWeight: 'bold', fontSize: 12, color: '#555'}}>Note from opponent:</Text>
+                                <Text style={{fontStyle: 'italic', marginTop: 4}}>{item.invite_notes}</Text>
                             </View>
                         )}
 
                         {isResponding ? (
-                            <View style={{ marginTop: 15 }}>
+                            <View style={{marginTop: 15}}>
                                 <TextInput 
                                     style={styles.input} 
                                     placeholder="Add a note (e.g. Thanks! See you there.)" 
@@ -128,21 +119,21 @@ export default function PendingInvites() {
                                     onChangeText={setResponseNotes} 
                                     multiline 
                                 />
-                                <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
-                                    <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#10B981' }]} onPress={() => handleResponse('confirmed')} disabled={processing}>
-                                        <Text style={{ color: '#fff', fontWeight: 'bold' }}>Accept Match</Text>
+                                <View style={{flexDirection: 'row', gap: 10, marginTop: 10}}>
+                                    <TouchableOpacity style={[styles.actionBtn, {backgroundColor: '#10B981'}]} onPress={() => handleResponse('confirmed')} disabled={processing}>
+                                        <Text style={{color: '#fff', fontWeight: 'bold'}}>Accept Match</Text>
                                     </TouchableOpacity>
-                                    <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#EF4444' }]} onPress={() => handleResponse('declined')} disabled={processing}>
-                                        <Text style={{ color: '#fff', fontWeight: 'bold' }}>Decline</Text>
+                                    <TouchableOpacity style={[styles.actionBtn, {backgroundColor: '#EF4444'}]} onPress={() => handleResponse('declined')} disabled={processing}>
+                                        <Text style={{color: '#fff', fontWeight: 'bold'}}>Decline</Text>
                                     </TouchableOpacity>
                                 </View>
-                                <TouchableOpacity onPress={() => setActiveMatchId(null)} style={{ alignItems: 'center', marginTop: 15 }}>
-                                    <Text style={{ color: '#666' }}>Cancel</Text>
+                                <TouchableOpacity onPress={() => setActiveMatchId(null)} style={{alignItems: 'center', marginTop: 15}}>
+                                    <Text style={{color: '#666'}}>Cancel</Text>
                                 </TouchableOpacity>
                             </View>
                         ) : (
                             <TouchableOpacity style={styles.respondBtn} onPress={() => setActiveMatchId(item.id)}>
-                                <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>Respond to Invite</Text>
+                                <Text style={{color: '#fff', fontWeight: 'bold', fontSize: 16}}>Respond to Invite</Text>
                             </TouchableOpacity>
                         )}
                     </View>

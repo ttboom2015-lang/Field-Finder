@@ -3,74 +3,46 @@ import { StyleSheet, Text, View, TextInput, TouchableOpacity, ScrollView, Activi
 import { Picker } from '@react-native-picker/picker';
 import { useRouter } from 'expo-router';
 import { createClient } from '@supabase/supabase-js';
+import { Ionicons } from '@expo/vector-icons';
 
-const supabase = createClient('https://lsquxrvufehselooyenj.supabase.co', 'sb_publishable_TANOMAeqEQwjo0PYtjbn_Q_WkdLbwyb');
+const supabase = createClient(
+  'https://lsquxrvufehselooyenj.supabase.co',
+  'sb_publishable_TANOMAeqEQwjo0PYtjbn_Q_WkdLbwyb'
+);
 
 export default function CreateTeam() {
   const router = useRouter();
-  const [loading, setLoading] = useState<boolean>(false);
-  const [initializing, setInitializing] = useState<boolean>(true);
-
-  // Dynamic configuration lists
-  const [sportsList, setSportsList] = useState<string[]>([]);
-  const [ageGroupsList, setAgeGroupsList] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [initializing, setInitializing] = useState(true);
 
   // Core Team Info
-  const [teamName, setTeamName] = useState<string>('');
-  const [sport, setSport] = useState<string>(''); 
-  const [ageGroup, setAgeGroup] = useState<string>('');
-  const [division, setDivision] = useState<string>('Division 1');
-  const [gender, setGender] = useState<string>('Boys');
-  const [address, setAddress] = useState<string>('');
-  const [postalCode, setPostalCode] = useState<string>('');
+  const [teamName, setTeamName] = useState('');
+  const [sport, setSport] = useState('Soccer'); 
+  const [ageGroup, setAgeGroup] = useState('U12');
+  const [division, setDivision] = useState('Division 1');
+  const [gender, setGender] = useState('Boys');
+  const [address, setAddress] = useState('');
+  const [postalCode, setPostalCode] = useState('');
 
   // Staff Info
-  const [managerName, setManagerName] = useState<string>('');
-  const [managerEmail, setManagerEmail] = useState<string>(''); 
-  const [managerPhone, setManagerPhone] = useState<string>('');
+  const [managerName, setManagerName] = useState('');
+  const [managerEmail, setManagerEmail] = useState(''); 
+  const [managerPhone, setManagerPhone] = useState('');
   
-  const [hcName, setHcName] = useState<string>(''); const [hcEmail, setHcEmail] = useState<string>(''); const [hcPhone, setHcPhone] = useState<string>('');
-  const [ac1Name, setAc1Name] = useState<string>(''); const [ac1Email, setAc1Email] = useState<string>(''); const [ac1Phone, setAc1Phone] = useState<string>('');
-  const [ac2Name, setAc2Name] = useState<string>(''); const [ac2Email, setAc2Email] = useState<string>(''); const [ac2Phone, setAc2Phone] = useState<string>('');
+  const [hcName, setHcName] = useState(''); const [hcEmail, setHcEmail] = useState(''); const [hcPhone, setHcPhone] = useState('');
+  const [ac1Name, setAc1Name] = useState(''); const [ac1Email, setAc1Email] = useState(''); const [ac1Phone, setAc1Phone] = useState('');
+  const [ac2Name, setAc2Name] = useState(''); const [ac2Email, setAc2Email] = useState(''); const [ac2Phone, setAc2Phone] = useState('');
 
-  // Automatically grab details and setup choices on load
+  const ageGroups = Array.from({ length: 15 }, (_, i) => `U${i + 7}`);
+
+  // Automatically grab the logged-in user's email for the Manager Email field
   useEffect(() => {
-    const fetchConfigs = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) setManagerEmail(user.email || '');
-
-        // 1. Fetch dynamic sports list
-        const { data: sportsData } = await supabase.from('sports_config').select('sport_name').order('sport_name', { ascending: true });
-        if (sportsData && sportsData.length > 0) {
-          const names = sportsData.map(i => i.sport_name);
-          setSportsList(names);
-          setSport(names[0]);
-        } else {
-          const defaults = ['Soccer', 'Basketball', 'Tennis', 'Hockey', 'Baseball'];
-          setSportsList(defaults);
-          setSport(defaults[0]);
-        }
-
-        // 2. Fetch dynamic age groups
-        const { data: ageData } = await supabase.from('age_groups_config').select('name').order('name', { ascending: true });
-        if (ageData && ageData.length > 0) {
-          const ages = ageData.map(i => i.name);
-          setAgeGroupsList(ages);
-          setAgeGroup(ages[0]);
-        } else {
-          const defaults = Array.from({ length: 15 }, (_, i) => `U${i + 7}`);
-          setAgeGroupsList(defaults);
-          setAgeGroup(defaults[0]);
-        }
-      } catch (err) {
-        setSportsList(['Soccer', 'Basketball']);
-        setAgeGroupsList(['U12', 'Adult']);
-      } finally {
-        setInitializing(false);
-      }
+    const fetchUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) setManagerEmail(user.email);
+      setInitializing(false);
     };
-    fetchConfigs();
+    fetchUser();
   }, []);
 
   const handleCreateTeam = async () => {
@@ -82,13 +54,12 @@ export default function CreateTeam() {
     setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
       const payload = { 
           teamName, sport, ageGroup, division, address, postalCode, gender, manager_id: user.id,
           managerName, managerPhone, hcName, hcEmail, hcPhone, ac1Name, ac1Email, ac1Phone, ac2Name, ac2Email, ac2Phone 
       };
 
+      // NOTE: Change localhost to your IP if testing on a physical mobile device!
       const response = await fetch('https://fieldfinder-api.onrender.com/api/teams', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -97,7 +68,7 @@ export default function CreateTeam() {
 
       if (response.ok) { 
           alert(`Success! Team Profile created.`); 
-          router.replace('/search'); 
+          router.replace('/search'); // Send them to the dashboard!
       } else { 
           const res = await response.json(); 
           alert("Error: " + res.error); 
@@ -132,15 +103,19 @@ export default function CreateTeam() {
               <View style={{flex: 1}}>
                   <Text style={styles.label}>Sport</Text>
                   <View style={styles.pickerWrapper}>
-                      <Picker selectedValue={sport} onValueChange={(itemValue) => setSport(itemValue)}>
-                          {sportsList.map(item => <Picker.Item key={item} label={item} value={item} />)}
+                      <Picker selectedValue={sport} onValueChange={setSport}>
+                          <Picker.Item label="Soccer" value="Soccer" />
+                          <Picker.Item label="Basketball" value="Basketball" />
+                          <Picker.Item label="Tennis" value="Tennis" />
+                          <Picker.Item label="Hockey" value="Hockey" />
+                          <Picker.Item label="Baseball" value="Baseball" />
                       </Picker>
                   </View>
               </View>
               <View style={{flex: 1}}>
                   <Text style={styles.label}>Gender</Text>
                   <View style={styles.pickerWrapper}>
-                      <Picker selectedValue={gender} onValueChange={(v) => setGender(v)}>
+                      <Picker selectedValue={gender} onValueChange={setGender}>
                           <Picker.Item label="Boys" value="Boys" />
                           <Picker.Item label="Girls" value="Girls" />
                       </Picker>
@@ -150,17 +125,17 @@ export default function CreateTeam() {
 
           <View style={styles.row}>
               <View style={{flex: 1}}>
-                  <Text style={styles.label}>Age Group / Category</Text>
+                  <Text style={styles.label}>Age Group</Text>
                   <View style={styles.pickerWrapper}>
-                      <Picker selectedValue={ageGroup} onValueChange={(v) => setAgeGroup(v)}>
-                          {ageGroupsList.map(age => <Picker.Item key={age} label={age} value={age} />)}
+                      <Picker selectedValue={ageGroup} onValueChange={setAgeGroup}>
+                          {ageGroups.map(age => <Picker.Item key={age} label={age} value={age} />)}
                       </Picker>
                   </View>
               </View>
               <View style={{flex: 1}}>
                   <Text style={styles.label}>Division</Text>
                   <View style={styles.pickerWrapper}>
-                      <Picker selectedValue={division} onValueChange={(v) => setDivision(v)}>
+                      <Picker selectedValue={division} onValueChange={setDivision}>
                           <Picker.Item label="Div 1" value="Division 1" />
                           <Picker.Item label="Div 2" value="Division 2" />
                           <Picker.Item label="Div 3" value="Division 3" />
